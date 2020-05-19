@@ -1,0 +1,1104 @@
+
+
+                ; PASCAL RUN-TIME ROUTINES
+                ; BY H. YUEN
+                ; VERSION 3.0 MAY/JULY 2012 BY H. MUNK
+                
+                ; CP/M EQUATES
+                
+ 0005 =         BDOS	EQU		0005H
+                
+                ; CP/M DOS FUNCTIONS
+ 0000 =         B$SYSRESET	EQU	0	; SYSTEM RESET
+ 0001 =         B$CONIN		EQU	1	; CONSOLE INPUT
+ 0002 =         B$CONOUT	EQU	2	; CONSOLE OUTPUT
+                
+ 0007 =         B$TOPRAM	EQU	7	; MSB OF ADDRESS OF START OF BDOS
+                
+ 000D =         CR		EQU	13
+ 000A =         LF		EQU	10
+                
+                ; INVARIANTS
+                ; VALUES ON THE STACK ARE STORED BIG ENDIAN (HIGH BYTE AT LOW ADDRESS)
+                ; DE CONTAINS TOP-OF-STACK AND POINTS TO THE LSBYTE OF THE TOP VALUE
+                ; BB CONTAINS BASE ADDRESS AND POINTS TO THE LSBYTE OF THE LOWEST WORD
+                ; OF THE STACK FRAME:
+                ;	+-----------------------+
+                ;	| LSBYTE VARIABLE 2     |	<== DE (STACK POINTER)
+                ;	+-----------------------+
+                ;	| MSBYTE VARIABLE 2     |
+                ;	+-----------------------+
+                ;	| LSBYTE VARIABLE 1     |
+                ;	+-----------------------+
+                ;	| MSBYTE VARIABLE 1     |
+                ;	+-----------------------+
+                ;	| LSBYTE RETURN ADDRESS |
+                ;	+-----------------------+
+                ;	| MSBYTE RETURN ADDRESS |
+                ;	+-----------------------+
+                ;	| LSBYTE DYNAMIC LINK   |
+                ;	+-----------------------+
+                ;	| MSBYTE DYNAMIC LINK   |
+                ;	+-----------------------+
+                ;	| LSBYTE STATIC LINK    |	<== BB (BASE POINTER)
+                ;	+-----------------------+
+                ;	| MSBYTE STATIC LINK    |
+                ;	+-----------------------+
+                ;	| LSBYTE PARAMETER N    |
+                ;	+-----------------------+
+                ;	| MSBYTE PARAMETERN     |
+                ;	+-----------------------+
+                ;	| LSBYTE PARAMETER      |
+                ;	+-----------------------+
+                ;	| MSBYTE PARAMETER      |
+                ;	+-----------------------+
+                ;
+                
+                ; THE FOLLOWING SECTION CONTAINS A TABLE WITH THE ADDRESSES
+                ; OF ALL RELEVANT P-CODE ROUTINES
+                ; THIS WILL SHOW UP AS A SEPARATE SECTION IN THE HEX FILE
+                ; THE P-CODE-TO-8080 TRANSLATOR USES THE ADDRESSES FROM THIS TABLE.
+                ; THE TABLE WILL NOT SHOW UP IN THE TRANSLATED FILE
+                ; THIS TABLE MAKES THE TRANSLATOR RUN-TIME ROUTINE POSITION INDEPENDENT
+                
+ 0100           	ORG	100H
+ 0100 50523031  	DB	'PR01'
+ 0104 2E00      	DW	(TABLE$END-TABLE$START)/2
+                TABLE$START:
+ 0106 0701      	DW	INIT
+ 0108 1403      	DW	LIT
+ 010A AC03      	DW	INT
+                
+ 010C 1B03      	DW	LODA
+ 010E 2603      	DW	LOD
+ 0110 2703      	DW	LOD1
+ 0112 3803      	DW	LODX
+ 0114 3903      	DW	LODX1
+                
+ 0116 5003      	DW	STOA
+ 0118 5803      	DW	STO
+ 011A 5903      	DW	STO1
+ 011C 6903      	DW	STOX
+ 011E 6A03      	DW	STOX1
+                
+ 0120 8603      	DW	CALA
+ 0122 8A03      	DW	CAL
+ 0124 8B03      	DW	CAL1
+                
+ 0126 2F01      	DW	OPR00$00
+ 0128 4501      	DW	OPR00$01
+ 012A 5101      	DW	OPR00$02
+ 012C 5701      	DW	OPR00$03
+                
+ 012E 6501      	DW	OPR00$04
+ 0130 7A01      	DW	OPR00$05
+ 0132 8501      	DW	OPR00$06
+ 0134 8E01      	DW	OPR00$07
+                
+ 0136 9A01      	DW	OPR00$08
+ 0138 9F01      	DW	OPR00$09
+ 013A A301      	DW	OPR00$0A
+ 013C A901      	DW	OPR00$0B
+                
+ 013E AF01      	DW	OPR00$0C
+ 0140 B501      	DW	OPR00$0D
+ 0142 BB01      	DW	OPR00$0E
+ 0144 C701      	DW	OPR00$0F
+                
+ 0146 D301      	DW	OPR00$10
+ 0148 DC01      	DW	OPR00$11
+ 014A EF01      	DW	OPR00$12
+ 014C 0902      	DW	OPR00$13
+                	
+ 014E 1302      	DW	OPR00$14
+ 0150 1D02      	DW	OPR00$15
+ 0152 2802      	DW	OPR00$16
+                
+ 0154 3602      	DW	SP0
+ 0156 3F02      	DW	SP1
+ 0158 4502      	DW	SP2
+ 015A AA02      	DW	SP3
+                	
+ 015C E002      	DW	SP4
+ 015E F302      	DW	SP5
+                ;	DW	SP6
+                ;	DW	SP7
+                
+ 0160 0903      	DW	SP8
+                TABLE$END:
+ 0162 8405      	DW	PROGB
+                
+ 0100           	ORG	100H
+                ; AS THIS IS THE FIRST INSTRUCTION EXECUTED AFTER LOADING BY CP/M, IT
+                ; MUST CONTAIN A JUMP TO THE FIRST INSTRUCTION OF THE PROGRAM
+                
+ 0100 C30701    	JMP	INIT
+                
+                ; STORAGE
+ 0103 0000      BB:	DW	0		; BASE REGISTER
+ 0105 0000      STACK2:	DW	0		; COMPLEMENT OF STACK TOPMOST ADDRESS
+                
+                ; INITIALISATION
+                ; INIT BASE POINTER (BB), TOP OF STACK (STACK2), STACK POINTER (DE), AND
+                ; SAVE EXIT ADDRESS AS DYNAMIC LINK IN STACK FRAME OF MAIN PROGRAM
+                
+                ; 8080 STACK USAGE: 0 BYTES
+                INIT:				; INIT BASE POINTER
+ 0107 210000    	LXI	H,0		; ADDRESS OF FIRST WORD BEYOND PROGRAM
+                				; TO BE FILLED IN BY P-CODE TRANSLATOR
+ 010A 23        	INX	H		; POINT TO LOW ORDER BYTE
+ 010B 220301    	SHLD	BB		; SAVE AS BASE POINTER
+ 010E 2B        	DCX	H		; POINT BELOW STACK
+ 010F 2B        	DCX	H
+ 0110 EB        	XCHG			; STACK POINTER TO DE
+ 0111 3A0700    	LDA	B$TOPRAM	; GET TOP OF TPA
+ 0114 3D        	DCR	A		; BACK OFF ONE PAGE
+ 0115 47        	MOV	B,A		; SAVE IN B
+ 0116 AF        	XRA	A		; CLEAR A
+ 0117 90        	SUB	B		; A = 0 - (TOP OF TPA)
+ 0118 67        	MOV	H,A		; ...TO H
+ 0119 2E01      	MVI	L,001H		; FORM COMPLEMENT OF ADDRESS
+ 011B 220501    	SHLD	STACK2		; SAVE TOP OF STACK
+ 011E 210500    	LXI	H,5
+ 0121 19        	DAD	D		; HL POINT TO DYNAMIC LINK OF MAIN
+                				;                                PROGRAM
+ 0122 011B05    	LXI	B,EXIT		; GET EXIT ADDRESS
+ 0125 70        	MOV	M,B		; SAVE EXIT ADDRESS AS DYNAMIC LINK
+ 0126 23        	INX	H
+ 0127 71        	MOV	M,C
+ 0128 218305    	LXI	H,PROGB-1	; INIT 8080 STACK
+ 012B F9        	SPHL
+ 012C C38405    	JMP	PROGB		; DONE, START PROGRAM
+                
+                ; AS A FURTHER REDUSCTION OF MEMORY USAGE, THE INIT ROUTINE COULD BE
+                ; MOVED INTO THE STACK AREA, TO BE OVERWRITTEN BY THE STACK ONCE IT HAS
+                ; DONE ITS JOB
+                
+                ; OPR 0,0	: PROCEDURE OR FUNCTION RETURN
+                ; 8080 STACK USAGE: 0 BYTES
+                OPR00$00:
+ 012F 2A0301    	LHLD	BB		; GET CURRENT BASE ADDRESS
+ 0132 23        	INX	H		; POINT TO DYNAMIC LINK
+ 0133 56        	MOV	D,M		; LOAD DYNAMIC LINK IN DE
+ 0134 23        	INX	H
+ 0135 5E        	MOV	E,M
+ 0136 EB        	XCHG
+ 0137 220301    	SHLD	BB		; SAVE DYNAMIC LINK AS NEW BASE ADDRESS
+ 013A EB        	XCHG
+ 013B 23        	INX	H		; LOAD RETURN ADDRESS IN DE
+ 013C 56        	MOV	D,M
+ 013D 23        	INX	H
+ 013E 5E        	MOV	E,M
+ 013F 01FAFF    	LXI	B,-6
+ 0142 09        	DAD	B		; DECREMENT STACK POINTER BY THREE WORDS
+ 0143 EB        	XCHG			; STACK POINTER TO DE, RETURN ADDRESS TO HL
+ 0144 E9        	PCHL
+                
+                ; OPR 0,1	: [SP] := -[SP] : NEGATE TOP OF STACK ELEMENT
+                ; 8080 STACK USAGE: 0 BYTES
+                OPR00$01:
+ 0145 EB        	XCHG			; STACK POINTER TO HL
+ 0146 AF        	XRA	A		; CLEAR A
+ 0147 96        	SUB	M		; A = -LBYTE
+ 0148 77        	MOV	M,A		; PUT BACK
+ 0149 4F        	MOV	C,A		; C = -LBYTE
+ 014A 2B        	DCX	H		; POINT TO HIGH ORDER BYTE
+ 014B 9E        	SBB	M		; A = -LBYTE - HBYTE
+ 014C 91        	SUB	C		; A = -LBYTE - HBYTE - (-LBYTE) = -HBYTE
+ 014D 77        	MOV	M,A		; PUT BACK
+ 014E 23        	INX	H		; REPAIR STACK POINTER
+ 014F EB        	XCHG			; STACK POINTER TO DE
+ 0150 C9        	RET
+                
+                ; OPR 0,2	: [SP-1] := [SP-1] + [SP]
+                ; 8080 STACK USAGE: 2+#'PPOP' BYTES
+                OPR00$02:
+ 0151 CD9304    	CALL	PPOP		; POP TOP TWO ELEMENTS
+ 0154 C3BF03    	JMP	ADD16		; DO THE 16 ADDITION, PUSH RESULT ON STACK,
+                				; RETURN THERE
+                
+                ; OPR 0,3	: [SP-1] := [SP-1] - [SP]
+                ; 8080 STACK USAGE:  2+#'PPOP' BYTES
+                OPR00$03:
+ 0157 CD9304    	CALL	PPOP		; POP TOP TWO ELEMENTS
+ 015A 78        	MOV	A,B		; GET MSB IN A
+ 015B D680      	SUI	80H		; SUBTRACT -128(*256)
+ 015D B1        	ORA	C		; IS BC == -32768
+ 015E C2BC03    	JNZ	SUB1		; NO, DO THE SUBTRACT
+ 0161 79        	MOV	A,C		; -(-32768) GIVES OVERFLOW
+ 0162 C3C003    	JMP	SU2
+                
+                ; OPR 0,4	: [SP-1] := [SP-1] * [SP]
+                ; 8080 STACK USAGE:  MAX(2+#'PPOP', PPUSH) BYTES
+                OPR00$04:
+ 0165 CD9304    	CALL PPOP		; POP TOP TWO ELEMENTS
+ 0168 D5        	PUSH	D		; SAVE STACK POINTER
+ 0169 7C        	MOV	A,H		; GET HIGH BYTE OF [SP-1]
+ 016A 5D        	MOV	E,L		; SAVE LOW BYTE [SP-1]
+ 016B 210000    	LXI	H,0		; CLEAR RESULT
+ 016E B7        	ORA	A		; SEE IF MSB [SP-1] IS ZERO
+ 016F C4CC03    	CNZ	MUL8
+ 0172 7B        	MOV	A,E
+ 0173 CDCC03    	CALL	MUL8
+ 0176 D1        	POP	D		; RESTORE STACK POINTER
+ 0177 C3A504    	JMP	PPUSH		; PUSH RESULT, RETURN THERE
+                
+                ; OPR 0,5	: [SP-1] := [SP-1] / [SP]
+                ; 8080 STACK USAGE: MAX(2+MAX(2+#'PPOP', 2+#'DIV16'), 'PPUSH') BYTES
+                OPR00$05:
+ 017A CD9304    	CALL PPOP		; POP TOP TWO ELEMENTS
+ 017D D5        	PUSH	D		; SAVE STACK POINTER
+ 017E CDD903    	CALL	DIV16		; DO THE DIVIDE
+ 0181 D1        	POP	D		; RESTORE STACK POINTER
+ 0182 C3A504    	JMP	PPUSH		; GO PUSH RESULT, RETURN THERE
+                
+                ; OPR 0,6	: [SP-1] := ODD([SP])
+                ; 8080 STACK USAGE: 0 BYTES
+                OPR00$06:
+ 0185 1A        	LDAX	D		; GET LSB
+ 0186 E601      	ANI	1		; TEST BIT 0
+ 0188 12        	STAX	D		; SAVE LSB OF RESULT
+ 0189 1B        	DCX	D		; POINT TO MSB
+ 018A AF        	XRA	A		; CLEAR A
+ 018B 12        	STAX	D		; SAVE MSB OF RESULT
+ 018C 13        	INX	D		; ADJUST STACK POINTER
+ 018D C9        	RET
+                
+                ; OPR 0,7	: [SP-1] := [SP-1] MOD [SP]
+                ; 8080 STACK USAGE: MAX(2+MAX(2+#'PPOP', 2+2+#'DIV16'), #'PPUSH') BYTES
+                OPR00$07:
+ 018E CD9304    	CALL PPOP		; POP TOP TWO ELEMENTS
+ 0191 D5        	PUSH	D		; SAVE STACK POINTER
+ 0192 CDD903    	CALL	DIV16		; DO THE DIVIDE
+ 0195 EB        	XCHG			; FLIP REMAINDER TO HL
+ 0196 D1        	POP	D		; RESTORE STACK POINTER
+ 0197 C3A504    	JMP	PPUSH		; GO PUSH RESULT, RETURN THERE
+                
+                ; OPR 0,8	: [SP-1] := ([SP-1] = [SP])
+                ; 8080 STACK USAGE: 0 BYTES
+                OPR00$08:
+ 019A 3E01      	MVI	A,1		; LOAD FLAGS
+ 019C C32004    	JMP	EQUAL		; GO TEST
+                
+                ; OPR 0,9	: [SP-1] := ([SP-1] <> [SP])
+                ; 8080 STACK USAGE: 0 BYTES
+                OPR00$09:
+ 019F AF        	XRA	A		; LOAD FLAGS
+ 01A0 C32004    	JMP	EQUAL		; GO TEST
+                
+                ; OPR 0,10	: [SP-1] := ([SP-1] < [SP])
+                ; 8080 STACK USAGE: 0 BYTES
+                OPR00$0A:
+ 01A3 010001    	LXI	B,0100H		; LOAD FLAGS
+ 01A6 C33A04    		JMP LESS	; GO TEST
+                
+                ; OPR 0,11	: [SP-1] := ([SP-1] >= [SP])
+                ; 8080 STACK USAGE: 0 BYTES
+                OPR00$0B:
+ 01A9 010000    	LXI	B,0000H		; LOAD FLAGS
+ 01AC C33A04    		JMP LESS	; GO TEST
+                
+                ; OPR 0,12	: [SP-1] := ([SP-1] > [SP])
+                ; 8080 STACK USAGE: 0 BYTES
+                OPR00$0C:
+ 01AF 010100    	LXI	B,0001H		; LOAD FLAGS
+ 01B2 C33A04    		JMP LESS	; GO TEST
+                
+                ; OPR 0,13	: [SP-1] := ([SP-1] < [SP])
+                ; 8080 STACK USAGE: 0 BYTES
+                OPR00$0D:
+ 01B5 010101    	LXI	B,0101H		; LOAD FLAGS
+ 01B8 C33A04    		JMP LESS	; GO TEST
+                
+                ; OPR 0,14	: [SP-1] := [SP-1] OR [SP]
+                ; 8080 STACK USAGE: 2+#'PPOP' BYTES
+                OPR00$0E:
+ 01BB CD9304    	CALL PPOP		; POP TOP TWO ELEMENTS
+ 01BE 7C        	MOV	A,H		; 'OR' HIGH ORDER BYTES
+ 01BF B0        	ORA	B
+ 01C0 13        	INX	D
+ 01C1 12        	STAX	D		; PUSH RESULT
+ 01C2 7D        	MOV	A,L		; 'OR' LOW ORDER BYTES
+ 01C3 B1        	ORA	C
+ 01C4 13        	INX	D
+ 01C5 12        	STAX	D		; PUSH RESULT
+ 01C6 C9        	RET
+                
+                ; OPR 0,15	: [SP-1] := [SP-1] AND [SP]
+                ; 8080 STACK USAGE: 2+#'PPOP' BYTES
+                OPR00$0F:
+ 01C7 CD9304    	CALL PPOP		; POP TOP TWO ELEMENTS
+ 01CA 7C        	MOV	A,H		; 'OR' HIGH ORDER BYTES
+ 01CB A0        	ANA	B
+ 01CC 13        	INX	D
+ 01CD 12        	STAX	D		; PUSH RESULT
+ 01CE 7D        	MOV	A,L		; 'OR' LOW ORDER BYTES
+ 01CF A1        	ANA	C
+ 01D0 13        	INX	D
+ 01D1 12        	STAX	D		; PUSH RESULT
+ 01D2 C9        	RET
+                
+                ; OPR 0,16	: [SP] := COMPLEMENT [SP]
+                ; 8080 STACK USAGE: 0 BYTES
+                OPR00$10:
+ 01D3 1A        	LDAX	D		; GET LOW ORDER BYTE
+ 01D4 2F        	CMA			; COMPLEMENT
+ 01D5 12        	STAX	D		; SAVE
+ 01D6 1B        	DCX	D
+ 01D7 1A        	LDAX	D		; GET HIGH ORDER BYTE
+ 01D8 2F        	CMA			; COMPLEMENT
+ 01D9 12        	STAX	D		; SAVE
+ 01DA 13        	INX	D		; REPAIR STACK POINTER
+ 01DB C9        	RET
+                
+                ; OPR 0,17	: [SP-1] := [SP-1] SHL [SP]
+                ; 8080 STACK USAGE: MAX(2+MAX(#'PPOP'), #'PPUSH',#'OPR00$12$1',#'OPR00$11$1') BYTES
+                OPR00$11:
+ 01DC CD9304    	CALL	PPOP		; POP TOP TWO ELEMENTS
+ 01DF AF        	XRA	A		; CLEAR A
+ 01E0 81        	ADD	C		; GET C, SET FLAGS
+ 01E1 CAA504    	JZ	PPUSH		; DO NOTHING IF ZERO
+ 01E4 FAFB01    	JM	OPR00$12$1		; SHIFT RIGH IF <0
+                OPR00$11$1:
+ 01E7 29        	DAD	H		; SHIFT LEFT ONE PLACE
+ 01E8 3D        	DCR	A
+ 01E9 C2E701    	JNZ	OPR00$11$1	; LOOP FOR ALL
+ 01EC C3A504    	JMP	PPUSH		; GO PUSH RESULT, RETURN THERE
+                
+                ; OPR 0,18	: [SP-1] := [SP-1] SHR [SP]
+                ; 8080 STACK USAGE: MAX(2+MAX(#'PPOP'), #'PPUSH',#'OPR00$12$1',#'OPR00$11$1') BYTES
+                OPR00$12:
+ 01EF CD9304    	CALL	PPOP		; POP TOP TWO ELEMENTS
+ 01F2 AF        	XRA	A		; CLEAR A
+ 01F3 91        	SUB	C		; NEGATE C, SET FLAGS
+ 01F4 CAA504    	JZ	PPUSH		; DO NOTHING IF ZERO
+ 01F7 F2E701    	JP	OPR00$11$1	; SHIFT RIGHT IF >0
+ 01FA 4F        	MOV	C,A		; -COUNT IN C
+                OPR00$12$1:
+ 01FB AF        	XRA	A
+ 01FC B4        	ORA	H		; GET H, RESET CARRY
+ 01FD 1F        	RAR			; SHIFT RIGHT
+ 01FE 67        	MOV	H,A		; SAVE RESULT
+ 01FF 7D        	MOV	A,L
+ 0200 1F        	RAR			; MOVE CARRY IN
+ 0201 6F        	MOV	L,A
+ 0202 0C        	INR	C		; COUNT UP TO 0
+ 0203 C2FB01    	JNZ	OPR00$12$1	; LOOP FOR ALL
+ 0206 C3A504    	JMP	PPUSH		; GO PUSH RESULT, RETURN THERE
+                
+                ; OPR 0,19	: [SP] := [SP] + 1
+                ; 8080 STACK USAGE: 0 BYTES
+                OPR00$13:
+ 0209 1A        	LDAX	D		; GET LOW ORDER BYTE
+ 020A C601      	ADI	1		; INCREMENT
+ 020C 12        	STAX	D		; SAVE INCREMENTED LOW ORDER BYTE
+ 020D D0        	RNC			; DONE IF NO CARRY
+ 020E 62        	MOV	H,D		; COPY STACK POINTER IN HL
+ 020F 6B        	MOV	L,E
+ 0210 2B        	DCX	H		; POINT TO HIGH ORDER BYTE
+ 0211 34        	INR	M		; INCREMENT HIGH ORDER BYTE
+ 0212 C9        	RET
+                
+                ; OPR 0,20	: [SP] := [SP] - 1
+                ; 8080 STACK USAGE: 0 BYTES
+                OPR00$14:
+ 0213 1A        	LDAX	D		; GET LOW ORDER BYTE
+ 0214 D601      	SUI	1		; DECCREMENT
+ 0216 12        	STAX	D		; SAVE INCREMENTED LOW ORDER BYTE
+ 0217 D0        	RNC			; DONE IF NO CARRY
+ 0218 62        	MOV	H,D		; COPY STACK POINTER IN HL
+ 0219 6B        	MOV	L,E
+ 021A 2B        	DCX	H		; POINT TO HIGH ORDER BYTE
+ 021B 35        	DCR	M		; INCREMENT HIGH ORDER BYTE
+ 021C C9        	RET
+                
+                ; OPR 0,21	: [SP+1] := [SP]
+                ; 8080 STACK USAGE: 0 BYTES
+                OPR00$15:
+ 021D 62        	MOV	H,D		; COPY STACK POINTER IN HL
+ 021E 6B        	MOV	L,E
+ 021F 13        	INX	D		; POINT TO NEXT STACK ELEMENT
+ 0220 2B        	DCX	H		; POINT TO LSB OF CURRENT STACK ELEMENT
+ 0221 7E        	MOV	A,M		; GET BYTE
+ 0222 12        	STAX	D		; COPY
+ 0223 23        	INX	H
+ 0224 13        	INX	D		; BOTH POINTERS TO NEXT BYTE
+ 0225 7E        	MOV	A,M		; GET BYTE
+ 0226 12        	STAX	D		; COPY
+ 0227 C9        	RET
+                
+                ; OPR 0,22	: [SP-1] := BDOS([SP-1], [SP])
+                ; 8080 STACK USAGE: 4 BYTES
+                OPR00$16:
+ 0228 CD9304    	CALL	PPOP		; POP [SP] IN BC, [SP-1] IN HL
+ 022B D5        	PUSH	D		; SAVE MY SP
+ 022C 59        	MOV	E,C		; MOVE ARGUMENT TO BDOS...
+ 022D 50        	MOV	D,B		; ...TO DE
+ 022E 69        	MOV	L,C		; MOVE BDOS FUNCTION NUMBER TO C
+ 022F CD0500    	CALL	BDOS		; DO THE BDOS FUNCTION
+ 0232 D1        	POP	D		; POP MY STACK POINTER
+ 0233 C3A504    	JMP	PPUSH		; PUSH RETURNED VALUE IN HL ON MY STACK, RETURN THERE
+                
+                ; SP0		: INPUT A CHARACTER
+                ; 8080 STACK USAGE: 2+#'INP' BYTES
+ 0236 13        SP0:	INX	D
+ 0237 AF        	XRA	A
+ 0238 12        	STAX	D		; CLEAR HIGH ORDER BYTE
+ 0239 13        	INX	D		; POINT TO LOW ORDER BYTE
+ 023A CDB704    	CALL	INP		; GET A CHARACTER
+ 023D 12        	STAX	D		; PUSH ON STACK
+ 023E C9        	RET
+                
+                ; SP 1		: OUTPUT A CHARACTER
+                ; 8080 STACK USAGE: #'OUTP' BYTES
+ 023F 1A        SP1:	LDAX	D		; POP CHARACTER
+ 0240 1B        	DCX	D		; DECREMENT STACK POINTER
+ 0241 1B        	DCX	D
+ 0242 C3C304    	JMP	OUTP		; GO OUTPUT, RETURN THERE
+                
+                ; SP 2		: INPUT A DECIMAL NUMBER
+                ; 8080 STACK USAGE: MAX(2+2+MAX(#'OUTP', #'INP'), #'PPUSH') BYTES
+ 0245 D5        SP2:	PUSH	D		; SAVE STACK POINTER
+ 0246 3E3F      SP2$1:	MVI	A,'?'		; PRINT A '?' PROMPT
+ 0248 57        	MOV	D,A		; SET INIT FLAG
+ 0249 CDC304    	CALL	OUTP
+ 024C AF        	XRA	A		; CLEAR SIGN
+ 024D 326305    	STA	SIGN
+ 0250 67        	MOV	H,A		; CLEAR RESULT
+ 0251 6F        	MOV	L,A
+ 0252 CDB704    SP2$2:	CALL INP		; GET A CHARACTER
+ 0255 FE20      	CPI	' '		; IGNORE SPACES
+ 0257 CA5202    	JZ	SP2$2
+ 025A FE2B      	CPI	'+'		; PLUS?
+ 025C CA6702    	JZ	SP2$3		; IGNORE PLUS
+ 025F FE2D      	CPI	'-'		; MINUS?
+ 0261 C26A02    	JNZ	SP2$4		; JUMP IF NOT MINUS
+ 0264 326305    	STA	SIGN		; SAVE SIGN
+ 0267 CDB704    SP2$3:	CALL	INP		; STEP OVER '+' OR '-'
+ 026A D630      SP2$4:	SUI	'0'		; CONVERT ASCII TO BINARY
+ 026C FA9002    	JM	SP2$6		; JUMP IF NOT A DIGIT
+ 026F FE0A      	CPI	10		; MUST BE IN RANGE 0 .. 9
+ 0271 F29002    	JP	SP2$6		; JUMP IF NOT A DIGIT
+ 0274 5F        	MOV	E,A		; MOVE TO DE
+ 0275 AF        	XRA	A		; CLEAR INIT FLAG
+ 0276 57        	MOV	D,A
+ 0277 29        	DAD	H		; RESULT*2
+ 0278 8F        	ADC	A		; CATCH OVERFLOW IN A
+ 0279 44        	MOV	B,H		; COPY IN BC
+ 027A 4D        	MOV	C,L
+ 027B 29        	DAD	H		; RESULT*4
+ 027C 8F        	ADC	A		; CATCH OVERFLOW IN A
+ 027D 29        	DAD	H		; RESULT*8
+ 027E 8F        	ADC	A		; CATCH OVERFLOW IN A
+ 027F 09        	DAD	B
+ 0280 8F        	ADC	A		; CATCH OVERFLOW IN A
+ 0281 19        	DAD	D		; ADD DIGIT
+ 0282 8F        	ADC	A		; CATCH OVERFLOW IN A
+ 0283 C28A02    	JNZ	SP2$5		; JUMP IF OVERFLOW
+ 0286 B4        	ORA	H		; A IS ZERO, TEST MSB
+ 0287 F26702    	JP	SP2$3		; GO FOR NEXT DIGIT
+ 028A 212F05    SP2$5:	LXI	H,MER2		; GET ERROR MESSAGE
+ 028D C3A402    	JMP	SP2$8		; GO PRINT, TRY AGAIN
+                
+ 0290 AF        SP2$6:	XRA	A		; TEST INIT FLAG
+ 0291 82        	ADD	D 	
+ 0292 C2A102    	JNZ	SP2$7		; ERROR IF NO DIGITS
+ 0295 3A6305    	LDA	SIGN		; TEST SIGN
+ 0298 B7        	ORA	A
+ 0299 C46404    	CNZ	NEGH		; NEGATE HL IF SET
+ 029C D1        	POP	D		; RESTORE STACK POINTER
+ 029D 13        	INX	D		; POINT TO HIGH ORDER BYTE
+ 029E C3A504    	JMP	PPUSH		; GO PUSH NUMBER, RETURN THERE
+                
+ 02A1 212005    SP2$7:	LXI	H,MER1		; LOAD ERROR MESSAGE
+ 02A4 CD1105    SP2$8:	CALL	PRINT		; PRINT ERROR MESSAGE
+ 02A7 C34602    	JMP	SP2$1		; TRY AGAIN
+                
+                ; SP3		: OUTPUT [SP] DECIMAL
+                ; 8080 STACK USAGE: MAX(2+#'PPOP',2+2+#'NEGH',4+2+MAX(#'DIV16',#'OUTP'))
+ 02AA CD9E04    SP3:	CALL	POP1		; POP TOP OF STCAK IN HL
+ 02AD D5        	PUSH	D		; SAVE STACK POINTER
+ 02AE 0E20      	MVI	C,' '		; DEFAULT SIGN CHARACTER
+ 02B0 AF        	XRA	A		; TEST SIGN
+ 02B1 B4        	ORA	H
+ 02B2 F2BA02    	JP	SP3$1		; SKIP IF POSITIVE
+ 02B5 0E2D      	MVI	C,'-'		; SIGN CHARACTER
+ 02B7 CD6404    	CALL	NEGH		; NEGATE HL
+ 02BA 0600      SP3$1:	MVI	B,0		; CLEAR CHARACTER COUNT
+ 02BC C5        SP3$2:	PUSH	B		; SAVE NUMBER OF CHARACTERS AND SIGN
+ 02BD 010A00    	LXI	B,10		; DIVIDE BY 10
+ 02C0 CDD903    	CALL	DIV16
+ 02C3 C1        	POP	B		; RESTORE NUMBER OF CHARACTERS AND SIGN
+ 02C4 3E30      	MVI	A,'0'		; CONVERT TO ASCII
+ 02C6 83        	ADD	E
+ 02C7 F5        	PUSH	PSW		; SAVE CHARACTER ON STACK
+ 02C8 04        	INR	B		; UPDATE NUMBER OF CHARACTERS
+ 02C9 7C        	MOV	A,H		; SEE IF 0 REMAINS
+ 02CA B5        	ORA	L
+ 02CB C2BC02    	JNZ	SP3$2		; JUMP IF NOT 0
+ 02CE 79        	MOV	A,C		; GET SIGN
+ 02CF CDC304    	CALL	OUTP		; PRINT SIGN
+ 02D2 F1        SP3$4:	POP	PSW		; POP A DIGIT
+ 02D3 CDC304    	CALL	OUTP		; PRINT IT
+ 02D6 05        	DCR	B
+ 02D7 C2D202    	JNZ	SP3$4		; LOOP FOR ALL DIGITS
+ 02DA D1        	POP	D		; RESTORE STACK POINTER
+ 02DB 3E20      	MVI	A,' '		; TRAILING BLANK
+ 02DD C3C304    	JMP	OUTP		; PRINT SPACE, RETURN THERE
+                
+                ; SP4		: INPUT A HEX NUMBER
+                ; 8080 STTACK USAGE: 2+#'INHEX' BYTES
+ 02E0 13        SP4:	INX	D		; POINT TO HIGH ORDER BYTE
+ 02E1 CDD204    SP4$1:	CALL	INHEX		; GET 2 HEX DIGITS
+ 02E4 DAE102    	JC	SP4$1		; RETRY IF BAD DIGITS
+ 02E7 81        	ADD	C		; MAKE INTO ONE BINARY
+ 02E8 12        	STAX	D		; PUSH ON STACK
+ 02E9 CDD204    	CALL	INHEX
+ 02EC DAE102    	JC	SP4$1		; RETRY IF BAD DIGITS
+ 02EF 81        	ADD	C		; MAKE INTO ONE BINARY
+ 02F0 13        	INX	D		; POINT TO LOW ORDER BYTE
+ 02F1 12        	STAX	D		; PUSH ON STACK
+ 02F2 C9        	RET
+                
+                ; SP5		: OUTPUT [SP] HEX
+                ; 8080 STTACK USAGE: 2+MACX(#'OUTP', #'HEX')
+ 02F3 3E20      SP5:	MVI	A,' '		; PRINT A FORMATTING SPACE
+ 02F5 CDC304    	CALL	OUTP
+ 02F8 1A        	LDAX	D		; GET LOW ORDER BYTE
+ 02F9 6F        	MOV	L,A		; SAVE IN L
+ 02FA 1B        	DCX	D		; POINT TO HIGH ORDER BYTE
+ 02FB 1A        	LDAX	D		; GET HIGH ORDER BYTE
+ 02FC 1B        	DCX	D		; POINT TO NEW TOP
+ 02FD CDF804    	CALL	HEX		; PRINT TWO HEX DIGITS OF HIGH ORDER BYTE
+ 0300 7D        	MOV	A,L		; GET LOW ORDER BYTE
+ 0301 CDF804    	CALL	HEX		; PRINT TWO HEX DIGITS OF LOW ORDER BYTE
+ 0304 3E20      	MVI	A,' '		; PRINT A FORMATTING SPACE
+ 0306 C3C304    	JMP	OUTP		; PRINT, RETURN THERE
+                
+                ; SP8		: PRINT A STRING
+                ; 8080 STACK USAGE: 2+#'OUTP'
+ 0309 E1        SP8:	POP	H		; RETURN ADDRESS IS START OF STRING
+ 030A 7E        SP8$1:	MOV	A,M		; GET A CHARACTER
+ 030B CDC304    	CALL	OUTP
+ 030E 23        	INX	H		; POINT TO NEXT CHARACTER
+ 030F 05        	DCR	B		; COUNT DOWN
+ 0310 C20A03    	JNZ	SP8$1		; LOOP FOR ALL
+ 0313 E9        	PCHL			; END OF STRING IS ACTUAL RETURN ADDRESS
+                
+                ; LIT		: LOAD LITERAL CONSTANT (FROM BC)
+                ; 8080 STACK USAGE: 0 BYTES
+ 0314 EB        LIT:	XCHG			; STACK POINTER TO HL
+ 0315 23        	INX	H		; POINT TO HIGH ORDER BYTE
+ 0316 70        	MOV	M,B		; SAVE MSB
+ 0317 23        	INX	H		; POINT TO LOW ORDER BYTE
+ 0318 71        	MOV	M,C		; SAVE LSB
+ 0319 EB        	XCHG			; STACK POINTER BACK TO DE
+ 031A C9        	RET
+                
+                ; LOD 255,0		: LOAD FROM ABSOLUTE MEMORY ADDRESS
+                ; 8080 STACK USAGE: 0 BYTES
+ 031B EB        LODA:	XCHG			; STACK POINTER TO HL
+ 031C 5E        	MOV	E,M		; MOVE ADDRESS FROM TOP OF STACK TO DE
+ 031D 2B        	DCX	H
+ 031E 56        	MOV	D,M
+ 031F 3600      	MVI	M,0		; CLEAR HIGH ORDER BYTE
+ 0321 1A        	LDAX	D		; FETCH BYTE FROM MEMORY
+ 0322 23        	INX	H
+ 0323 77        	MOV	M,A		; STORE IN STACK
+ 0324 EB        	XCHG			; STACK POINTER BACK TO DE
+ 0325 C9        	RET
+                
+                ; LOAD L,D		: LOAD VARIABLE AT LEVEL L, DISPLACEMENT D
+                ;			: L IN A, D IN BC
+                ;			: LOD: LEVEL=0, LOD1: LEVEL IN A
+                ; 8080 STACK USAGE: 2+ #'BASE' BYTES
+ 0326 AF        LOD:	XRA	A		; CLEAR A
+ 0327 2A0301    LOD1:	LHLD	BB		; GET BASE ADDRESS
+ 032A B7        	ORA	A		; EXAMINE LEVEL DIFFERENCE
+ 032B C4AC04    	CNZ	BASE		; GET APPROPRIATE BASE ADDRESS IN HL
+ 032E 13        	INX	D		; ADJUST SP TO POINT TO MSB
+ 032F 09        	DAD	B		; ADD DISPLACEMENT
+ 0330 2B        	DCX	H		; POINT TO MSB
+ 0331 7E        	MOV	A,M		; MOVE VIA A TO STACK
+ 0332 12        	STAX	D
+ 0333 13        	INX	D		; POINT TO LSB
+ 0334 23        	INX	H
+ 0335 7E        	MOV	A,M		; MOVE LSB VIA A TO STACK
+ 0336 12        	STAX	D
+ 0337 C9        	RET
+                
+                ; LODX L,D		: LOAD VARIABLE INDEXED AT LEVEL L, DISPLACEMENT D
+                ;			: L IN A, D IN BC, INDEX ON TOP OF STACK
+                ;			: LODX: LEVEL=0, LODX1: LEVEL IN A
+                ; 8080 STACK USAGE: 2+ #'BASE' BYTES
+ 0338 AF        LODX:	XRA	A		; CLEAR A
+ 0339 2A0301    LODX1:	LHLD	BB		; GET BASE ADDRESS
+ 033C B7        	ORA	A		; EXAMINE LEVEL DIFFERENCE
+ 033D C4AC04    	CNZ	BASE		; GET APPROPRIATE BASE ADDRESS IN HL
+ 0340 09        	DAD	B		; ADD DISPLACEMENT
+ 0341 EB        	XCHG			; SP TO HL, START OF ARRAY TO DE
+ 0342 4E        	MOV	C,M		; POP INDEX
+ 0343 2B        	DCX	H
+ 0344 46        	MOV	B,M
+ 0345 EB        	XCHG			; SP TO DE, START OF ARRAY BACK IN HL
+ 0346 09        	DAD	B		; ADD INDEX...
+ 0347 09        	DAD	B		; ...TWICE
+ 0348 2B        	DCX	H		; POINT TO MSB
+ 0349 7E        	MOV	A,M		; MOVE VIA A TO STACK
+ 034A 12        	STAX	D
+ 034B 13        	INX	D		; POINT TO LSB
+ 034C 23        	INX	H
+ 034D 7E        	MOV	A,M		; MOVE LSB VIA A TO STACK
+ 034E 12        	STAX	D
+ 034F C9        	RET
+                
+                ; STO 255,0		: STORE AT ABSOLUTE ADDRESS
+                ; 8080 STACK USAGE: 2+#'POP1' BYTES
+ 0350 1A        STOA:	LDAX	D		; GET VALUE TO BE STORED
+ 0351 1B        	DCX	D
+ 0352 1B        	DCX	D		; ADJUST STACK POINTER
+ 0353 CD9E04    	CALL	POP1		; POP ABSOLUTE ADDRESS FOR TOP OF STACK
+ 0356 77        	MOV	M,A		; STORE VALUE
+ 0357 C9        	RET
+                
+                ; STO L,D		: STORE VARIABLE IN LEVEL L, DISPLACEMENT D
+                ;			: L IN A, D IN BC
+                ;			: STO: LEVEL = 0, STO1: LEVEL DIFFERENCE IN A
+                ; 8080 STACK USAGE: 2+#'BASE'
+ 0358 AF        STO:	XRA	A		; LEVEL = 0
+ 0359 2A0301    STO1:	LHLD	BB		; GET BASE ADDRESS IN HL
+ 035C B7        	ORA	A		; EXAMINE LEVEL DIFFERENCE
+ 035D C4AC04    	CNZ	BASE		; GET APPROPRIATE BASE
+ 0360 09        	DAD	B		; ADD DISPLACEMENT
+ 0361 1A        	LDAX	D		; GET LOW ORDER BYTE
+ 0362 77        	MOV	M,A		; STORE
+ 0363 1B        	DCX	D
+ 0364 2B        	DCX	H
+ 0365 1A        	LDAX	D		; GET HIGH ORDER BYTE
+ 0366 77        	MOV	M,A		; STORE
+ 0367 1B        	DCX	D		; POINT TO NEW TOP
+ 0368 C9        	RET
+                
+                ; STOX L,D		: STORE VARIABLE INDEXED IN LEVEL L, DISPLACEMENT D
+                ;			: L IN A, D IN BC, INDEX ON TOP OF STACK
+                ;			: STOX: LEVEL = 0, STOX1: LEVEL DIFFERENCE IN A
+                ; 8080 STACK USAGE: 2+2+#'BASE'
+ 0369 AF        STOX:	XRA	A		; LEVEL = 0
+ 036A EB        STOX1:	XCHG			; STACK POINTER TO HL
+ 036B 5E        	MOV	E,M		; POP VALUE TO BE STORED IN DE
+ 036C 2B        	DCX	H
+ 036D 56        	MOV	D,M
+ 036E 2B        	DCX	H		; ADJUST STACK POINTER
+ 036F D5        	PUSH	D		; SAVE THAT VALUE
+ 0370 5E        	MOV	E,M		; POP INDEX IN DE
+ 0371 2B        	DCX	H
+ 0372 56        	MOV	D,M
+ 0373 2B        	DCX	H		; POINT TO NEW STACK STOP
+ 0374 EB        	XCHG			; STACK POINTER DE, INDEX IN HL
+ 0375 29        	DAD	H		; INDEX*2
+ 0376 09        	DAD	B		; ADD DISPLACEMENT
+ 0377 44        	MOV	B,H		; MOVE TO BC
+ 0378 4D        	MOV	C,L
+ 0379 2A0301    	LHLD	BB		; GET BASE ADDRESS IN HL
+ 037C B7        	ORA	A		; EXAMINE LEVEL DIFFERENCE
+ 037D C4AC04    	CNZ	BASE		; GET APPROPRIATE BASE
+ 0380 09        	DAD	B		; ADD DISPLACEMENT
+ 0381 C1        	POP	B		; RESTORE VALUE TO BE STORED
+ 0382 71        	MOV	M,C		; STORE
+ 0383 2B        	DCX	H
+ 0384 70        	MOV	M,B		; STORE
+ 0385 C9        	RET
+                
+                ; CALL 255,A		: CALL SUBROUTINE AT ABSOLUTE ADDRESS
+                ; 8080 STACK USAGE: 2+#'POP1'
+ 0386 CD9E04    CALA:	CALL	POP1		; POP SUBROUTINE ADDRESS
+ 0389 E9        	PCHL
+                
+                ; CALL L,A		: CALL PROCEDURE R FUNCTION WITH LEVEL L, AT ADDRESS A
+                ;			: CAL: LEVEL DIFFERENCE = 0, CAL1: LEVEL DIFFERENCE IN A
+                ; 8080 STACK USAGE: 2+#'BASE'
+ 038A AF        CAL:	XRA	A		; CLEAR LEVEL DIFFERENCE
+ 038B 2A0301    CAL1:	LHLD	BB		; GET BASE ADDRESS
+ 038E 44        	MOV	B,H		; COPY IN BC
+ 038F 4D        	MOV	C,L
+ 0390 B7        	ORA	A		; EXAMINE LEVEL DIFFERENCE
+ 0391 C4AC04    	CNZ	BASE		; GET APPROPRIATE BASE
+ 0394 D5        	PUSH	D		; SAVE STACK POINTER
+ 0395 EB        	XCHG			; STACK POINTER TO HL
+ 0396 23        	INX	H
+ 0397 72        	MOV	M,D
+ 0398 23        	INX	H
+ 0399 73        	MOV	M,E
+ 039A 220301    	SHLD	BB		; SAVE CURRENT STACK POINTER AS NEW BASE ADDRESS
+ 039D 23        	INX	H		; STORE OLD BASE ADDRESS AS DYNAMIC LINK
+ 039E 70        	MOV	M,B
+ 039F 23        	INX	H
+ 03A0 71        	MOV	M,C
+ 03A1 D1        	POP	D		; RESTORE STACK POINTER
+ 03A2 C1        	POP	B		; GET RETURN ADDRESS
+ 03A3 C5        	PUSH	B		; AND RESAVE RETURN ADDRESS
+ 03A4 03        	INX	B		; ADD 3
+ 03A5 03        	INX	B
+ 03A6 03        	INX	B
+ 03A7 23        	INX	H		; PUSH RETURN ADDRESS
+ 03A8 70        	MOV	M,B
+ 03A9 23        	INX	H
+ 03AA 71        	MOV	M,C
+ 03AB C9        	RET
+                
+                ; INT 0,N		: INCREMENT STACK POINTER WITH N
+                ; 8080 STACK USAGE: 2+#'PRINT' BYTES
+ 03AC 19        INT:	DAD	D		; INCREMENT
+ 03AD EB        	XCHG			; STACK POINTER TO DE
+ 03AE 2A0501    	LHLD	STACK2		; GET COMPLEMENT OF TOP OF STACK ROOM
+ 03B1 19        	DAD	D
+ 03B2 D0        	RNC			; RETURN IF NO OVERFLOW
+ 03B3 213D05    STKOV:	LXI	H,STVMSG	; PRINT STACK OVERFLOW MESSAGE
+ 03B6 CD1105    	CALL	PRINT
+ 03B9 C31B05    	JMP	EXIT		; ABORT
+                
+                ; 16 BIT ARITHMETIC ROUTINES
+                
+                ; 16 BIT ADD/SUBTRACT: HL +/- BC
+                ; 8080 STACK USAGE: MAX(2+#'NEGB', #'PPUSH') BYTES
+ 03BC CD7104    SUB1:	CALL	NEGB		; NEGATE BC
+ 03BF 78        ADD16:	MOV	A,B		; GET SIGN BITS
+ 03C0 AC        SU2:	XRA	H
+ 03C1 09        	DAD	B		; HL := HL + BC
+ 03C2 4F        	MOV	C,A		; SAVE SIGN BITS
+ 03C3 1F        	RAR			; GET CARRY BIT
+ 03C4 A9        	XRA	C		; XOR WITH SIGN BITS
+ 03C5 AC        	XRA	H		; MAKE SIGN BIT OF RESULT
+ 03C6 FC7E04    	CM	OVFL		; PRINT OVERFLOW MESSAGE
+ 03C9 C3A504    	JMP	PPUSH		; PUSH RESULT, RETURN THERE
+                
+                ; 8 X 16 BITS MULTIPLY
+                ; 8080 STACK USAGE: 0 BYTES
+ 03CC 1608      MUL8:	MVI	D,8		; 8 BITS TO SHIFT
+ 03CE 29        MUL8$1:	DAD	H		; HL := HL*2 = HL SHL 1
+ 03CF 07        	RLC			; GET A BIT
+ 03D0 D2D403    	JNC	MUL8$2		; SKIP IF ZERO
+ 03D3 09        	DAD	B		; NOW HL := HL*2 + BC
+ 03D4 15        MUL8$2:	DCR	D		; DECREMENT BIT COUNT
+ 03D5 C2CE03    	JNZ	MUL8$1		; LOOP FOR NEXT BIT IF ANY
+ 03D8 C9        	RET
+                
+                ; 16 BIT DIVIDE
+                ; 8080 STACK USAGE: 6 BYTES
+ 03D9 78        DIV16:	MOV	A,B		; CHECK FOR /0 ERROR
+ 03DA B1        	ORA	C
+ 03DB CA8704    	JZ	DVCK		; JUMP IF SO
+ 03DE AF        	XRA	A		; CLEAR A
+ 03DF 80        	ADD	B		; SAVE SIGN OF DIVISOR
+ 03E0 F5        	PUSH	PSW
+ 03E1 F47104    	CP	NEGB		; IF BC>=0 THEN THEN BC := -BC
+ 03E4 AF        	XRA	A		; CLEAR A
+ 03E5 84        	ADD	H		; SAVE SIGN OF DIVIDENT
+ 03E6 F5        	PUSH	PSW
+ 03E7 FC6404    	CM	NEGH		; IF HL<0 THEN HL := -HL
+ 03EA EB        	XCHG			; DIVIDENT IN DE
+ 03EB 210000    	LXI	H,0		; INIT RESULT
+ 03EE 3E10      	MVI	A,16		; COUNTER FOR 16 BITS
+ 03F0 29        DIV16$1:DAD	H		; SHIFT HL
+ 03F1 EB        	XCHG			; SHIFT DE
+ 03F2 29        	DAD	H
+ 03F3 EB        	XCHG
+ 03F4 D2F803    	JNC	DIV16$2
+ 03F7 23        	INX	H
+ 03F8 E5        DIV16$2:PUSH	H		; SAVE HL
+ 03F9 09        	DAD	B
+ 03FA D20704    	JNC	DIV16$3
+ 03FD 1C        	INR	E		; PUT 1 IN LOW ORDER BIT OF DE
+ 03FE 33        	INX	SP		; THROW AWAY OLD HL
+ 03FF 33        	INX	SP
+ 0400 3D        	DCR	A		; DECREMENT BIT COUNTER
+ 0401 C2F003    	JNZ	DIV16$1		; LOOP FOR NEXT BIT
+ 0404 C30C04    	JMP	DIV16$4
+                
+ 0407 E1        DIV16$3:POP	H		; GET OLD HL
+ 0408 3D        	DCR	A
+ 0409 C2F003    	JNZ	DIV16$1
+ 040C EB        DIV16$4:XCHG			; SWITCH QUOTIENT AND REMAINDER
+ 040D C1        	POP	B		; SIGN OF DIVIDENT
+ 040E F1        	POP	PSW		; SIGN OF DIVISOR
+ 040F A8        	XRA	B
+ 0410 FC6404    	CM	NEGH		; NEGATE RESULT
+ 0413 7A        	MOV	A,D		; RAMAINDER 0?
+ 0414 B3        	ORA	E
+ 0415 C8        	RZ
+ 0416 AF        	XRA	A
+ 0417 80        	ADD	B		; DIVIDENT >= 0?
+ 0418 F0        	RP
+ 0419 AF        	XRA	A
+ 041A 93        	SUB	E		; NEGATE REAMINDER
+ 041B 5F        	MOV	E,A
+ 041C 9A        	SBB	D
+ 041D 93        	SUB	E
+ 041E 57        	MOV	D,A
+ 041F C9        	RET
+                
+                ; COMPARE ROUTINES
+                
+                ; TEST FOR EQUAL/NOT EQUAL:	FLAG IN A
+                ; 8080 STACK USAGE: 2+MAX(2+#'PPOP', #'NOT$EQ') BYTES
+ 0420 F5        EQUAL:	PUSH	PSW		; SAVE FLAG
+ 0421 CD9304    	CALL PPOP		; POP TOP TWO ELEMENTS
+ 0424 AF        	XRA	A		; CLEAR HIGH ORDER BYTE OF RESULTS
+ 0425 13        	INX	D
+ 0426 12        	STAX	D
+ 0427 13        	INX	D
+ 0428 7D        	MOV	A,L		; TEST LOW ORDER BYTE
+ 0429 B9        	CMP	C
+ 042A C23504    	JNZ	NOT$EQ
+ 042D 7C        	MOV	A,H		; TEST HIGH ORDER BYTES
+ 042E B8        	CMP	B
+ 042F C23504    	JNZ	NOT$EQ
+ 0432 F1        	POP	PSW
+ 0433 12        	STAX	D		; STORE RESULTS
+ 0434 C9        	RET
+                
+                ; 8080 STACK USAGE: 0 BYTES
+ 0435 F1        NOT$EQ:	POP	PSW
+ 0436 EE01      	XRI	1		; FLIP BIT 0
+ 0438 12        	STAX	D
+ 0439 C9        	RET
+                
+                ; TEST FOR LESS OR EQUAL/MORE
+                ; 8080 STACK USAGE: 4+#'PPOP' BYTES
+ 043A C5        LESS:	PUSH	B		; SAVE FLAGS
+ 043B CD9304    	CALL	PPOP		; POP TOP TWO ELEMENTS
+ 043E 13        	INX	D		; POINT TO HIGH ORDER BYTE OF RESULT
+ 043F AF        	XRA	A		; CLEAR HIGH ORDER BYTE
+ 0440 12        	STAX	D
+ 0441 13        	INX	D
+ 0442 7C        	MOV	A,H		; TEST HIGH ORDER BYTES
+ 0443 B8        	CMP	B
+ 0444 CA5204    	JZ	LESS1
+ 0447 1F        	RAR
+ 0448 AC        	XRA	H
+ 0449 A8        	XRA	B
+ 044A FA6104    	JM	LESS3
+ 044D F1        	POP	PSW
+ 044E EE01      	XRI	1		; FLIP BIT 0
+ 0450 12        	STAX	D
+ 0451 C9        	RET
+                
+ 0452 7D        LESS1:	MOV	A,L		; COMPARE LOW ORDER BYTES
+ 0453 B9        	CMP	C
+ 0454 DA6104    	JC	LESS3
+ 0457 C1        	POP	B		; POP FLAGS
+ 0458 78        	MOV	A,B
+ 0459 C25D04    	JNZ	LESS2
+ 045C A9        	XRA	C
+ 045D EE01      LESS2:	XRI	1
+ 045F 12        	STAX	D
+ 0460 C9        	RET
+                
+ 0461 F1        LESS3:	POP	PSW
+ 0462 12        	STAX	D
+ 0463 C9        	RET
+                
+                ; NEGATE HL
+                ; 8080 STACK USAGE: 2+#'OVFL' BYTES
+ 0464 AF        NEGH:	XRA	A
+ 0465 95        	SUB	L
+ 0466 6F        	MOV	L,A
+ 0467 9C        	SBB	H
+ 0468 95        	SUB	L
+ 0469 67        	MOV	H,A
+ 046A D680      	SUI	80H
+ 046C B5        	ORA	L
+ 046D CC7E04    	CZ	OVFL
+ 0470 C9        	RET
+                
+                ; NEGATE BC
+                ; 8080 STACK USAGE: 2+#'OVFL' BYTES
+ 0471 AF        NEGB:	XRA	A
+ 0472 91        	SUB	C
+ 0473 4F        	MOV	C,A
+ 0474 98        	SBB	B
+ 0475 91        	SUB	C
+ 0476 47        	MOV	B,A
+ 0477 D680      	SUI	80H
+ 0479 B1        	ORA	C
+ 047A CC7E04    	CZ	OVFL
+ 047D C9        	RET
+                
+                ; REPORT OVERFLOW
+                ; 8080 STACK USAGE: 4+#'PRINT'
+ 047E E5        OVFL:	PUSH	H
+ 047F 214305    	LXI	H, OVFMSG
+ 0482 CD1105    	CALL	PRINT
+ 0485 E1        	POP	H
+ 0486 C9        	RET
+                
+                ; REPORT /0
+                ; 8080 STACK USAGE: 2+#'PRINT'
+ 0487 214F05    DVCK:	LXI	H,DV0MSG
+ 048A CD1105    	CALL	PRINT
+ 048D 210000    	LXI	H,0
+ 0490 54        	MOV	D,H
+ 0491 5D        	MOV	E,L
+ 0492 C9        	RET
+                
+                ; STACK MANIPULATION ROUTINES
+                
+                ; PPOP:	: POP TOP TWO ELEMENTS
+                ;		: [SP] TO BC
+                ;		: [SP-1] TO HL
+                ; 8080 STACK USAGE: 0 BYTES
+ 0493 EB        PPOP:	XCHG	; STACK POINTER TO HL
+ 0494 4E        	MOV	C,M		; GET LSB
+ 0495 2B        	DCX	H
+ 0496 46        	MOV	B,M		; GET MSB
+ 0497 2B        	DCX	H
+ 0498 5E        	MOV	E,M		; GET [SP-1]
+ 0499 2B        	DCX	H
+ 049A 56        	MOV	D,M
+ 049B EB        	XCHG			; STACK POINTER BACK TO DE
+ 049C 1B        	DCX	D		; ADJUST STACK POINTER
+ 049D C9        	RET
+                
+                ; POP1		: POP TOP ELEMENT TO HL
+                ; 8080 STACK USAGE: 0 BYTES
+ 049E EB        POP1:	XCHG
+ 049F 5E        	MOV	E,M
+ 04A0 2B        	DCX	H
+ 04A1 56        	MOV	D,M
+ 04A2 EB        	XCHG			; STACK POINTER BACK TO DE
+ 04A3 1B        	DCX	D		; ADJUST STACK POINTER
+ 04A4 C9        	RET
+                
+                ; PPUSH		: PUSH HL ON STACK
+                ; 8080 STACK USAGE: 0 BYTES
+ 04A5 EB        PPUSH:	XCHG			; GET STACK POINTER INHL
+ 04A6 23        	INX	H
+ 04A7 72        	MOV	M,D
+ 04A8 23        	INX	H
+ 04A9 73        	MOV	M,E
+ 04AA EB        	XCHG			; STACK POINTER BACK TO DE
+ 04AB C9        	RET
+                
+                ; BASE		: GET BASE ADDRESS AT LEVEL L
+                ;		: CURRENT BASE ADDRES IN HL
+                ;		: REQUIRED LEVEL IN A
+                ; 8080 STACK USAGE: 2 BYTES
+ 04AC D5        BASE:	PUSH	D		; SAVE STACK POINTER
+ 04AD 5E        BASE$1:	MOV	E,M		; GET PREVIOUS BASE
+ 04AE 2B        	DCX	H
+ 04AF 56        	MOV	D,M
+ 04B0 EB        	XCHG			; SWAP PREVIOUS BASE IN HL
+ 04B1 3D        	DCR	A		; COUNT DOWN
+ 04B2 CAAD04    	JZ	BASE$1		; JUMP FOR NEXT
+ 04B5 D1        	POP	D		; RESTORE STACK POINTER
+ 04B6 C9        	RET
+                
+                ; IO ROUTINES
+                
+                ; INP		: INPUT A CHARACTER, SYNCHRONOUS
+                ; 8080 STACK USAGE: 8 BYTES
+ 04B7 C5        INP:	PUSH	B
+ 04B8 D5        	PUSH	D
+ 04B9 E5        	PUSH	H
+ 04BA 0E01      	MVI	C,B$CONIN
+ 04BC CD0500    	CALL BDOS
+ 04BF E1        	POP	H
+ 04C0 D1        	POP	D
+ 04C1 C1        	POP	B
+ 04C2 C9        	RET
+                
+                ; OUTP		: OUTPUT A CHARACTER, SYNCHRONOUS
+                ; 8080 STACK USAGE: 10 BYTES
+ 04C3 F5        OUTP:	PUSH	PSW
+ 04C4 C5        	PUSH	B
+ 04C5 D5        	PUSH	D
+ 04C6 E5        	PUSH	H
+ 04C7 0E02      	MVI	C,B$CONOUT
+ 04C9 5F        	MOV	E,A
+ 04CA CD0500    	CALL BDOS
+ 04CD E1        	POP	H
+ 04CE D1        	POP	D
+ 04CF C1        	POP	B
+ 04D0 F1        	POP	PSW
+ 04D1 C9        	RET
+                
+                ; INPUT TWO HEX DIGITS
+                ; 8080 STACK USAGE: 2+MAX(#'IHX', #'INP',#'PRINT')
+ 04D2 CDDB04    INHEX:	CALL	IHX
+ 04D5 D8        	RC
+ 04D6 07        	RLC			; MOVE TO MS NIBBLE
+ 04D7 07        	RLC
+ 04D8 07        	RLC
+ 04D9 07        	RLC
+ 04DA 4F        	MOV	C,A		; SAVE RESULT
+                
+                ; INPUT ONE HEX DIGIT
+                ; 8080 STACK USAGE: 2+MAX(#'INP',#'PRINT')
+ 04DB CDB704    IHX:	CALL	INP		; GET A CHARACTER
+ 04DE D630      	SUI	'0'		; MAKE VALUE FROM CHARACTER
+ 04E0 DAF004    	JC	IHX$1		; REPORT INPUT ERROR IF LESS THAN '0'
+ 04E3 FE0A      	CPI	10		; IS VALUE LARGER THAN 10?
+ 04E5 3F        	CMC			; MAKE SURE THE CY HAS THE RIGHT VALUE
+ 04E6 D0        	RNC			; OK (AND NO CY) IF LESS THAN 10
+ 04E7 D607      	SUI	'A'-'9'-1	; SEE IF IN 'A'-'F'
+ 04E9 DAF004    	JC	IHX$1		; IF LESS THAN 'A', REPORT ERROR
+ 04EC FE10      	CPI	16		; IS VALUE LARGER THAN 16?
+ 04EE 3F        	CMC			; MAKE SURE THE CY HAS THE RIGHT VALUE
+ 04EF D0        	RNC			; OK (AND NO CY) IF LESS THAN 10
+ 04F0 212005    IHX$1:	LXI	H,MER1		; LOAD ERROR MESSAGE
+ 04F3 CD1105    	CALL	PRINT		; PRINT ERROR MESSAGE
+ 04F6 37        	STC			; SET CY AS ERROR FLAG
+ 04F7 C9        	RET
+                
+                ; PRINT TWO HEX DIGITS, VALUE IN A
+                ; 8080 STACK USAGE: MAX(2+#'HEX$1', #'OUTP') BYTES
+ 04F8 4F        HEX:	MOV	C,A		; SAVE VALUE
+ 04F9 E6F0      	ANI	11110000B	; MASK OFF MS NIBBLE
+ 04FB 0F        	RRC			; MOVE TO LS NIBBLE
+ 04FC 0F        	RRC
+ 04FD 0F        	RRC
+ 04FE 0F        	RRC	
+ 04FF CD0505    	CALL	HEX$1
+ 0502 79        	MOV	A,C		; GET VALUE BACK
+ 0503 E60F      	ANI	00001111B	; MASK OFF LS NIBBLE
+ 0505 FE0A      HEX$1:	CPI	10		; MORE THAN 10?
+ 0507 FA0C05    	JM	HEX$2		; JUMP IF LESS THAN 10
+ 050A C607      	ADI	'A'-'9'-1	; FIRST STAGE IN CONVERTING VALUE TO CHARACTER
+ 050C C630      HEX$2:	ADI	'0'		; CONVERT TO CHARACTER
+ 050E C3C304    	JMP	OUTP		; PRINT VALUE, RETURN THERE
+                
+                ; PRINT AN ERROR MESSAGE
+                ; 8080 STACK USAGE: 2+#'OUTPUT'
+ 0511 7E        PRINT:	MOV	A,M
+ 0512 B7        	ORA	A
+ 0513 C8        	RZ
+ 0514 23        	INX	H
+ 0515 CDC304    	CALL	OUTP
+ 0518 C31105    	JMP	PRINT
+                
+ 051B 0E00      EXIT:	MVI	C,B$SYSRESET
+ 051D C30500    	JMP	BDOS
+                
+                ; MESSAGES
+ 0520 20494E5055MER1:	DB	' INPUT ERROR', CR, LF, 0
+ 052F 2053495A45MER2:	DB	' SIZE ERROR', CR, LF, 0
+ 053D 2053544143STVMSG:	DB	' STACK'
+ 0543 204F564552OVFMSG:	DB	' OVERFLOW', CR, LF, 0
+ 054F 2044495649DV0MSG:	DB	' DIVISION BY ZERO', CR, LF, 0
+                
+                ; STORAGE
+                
+ 0563 20        SIGN:	DB	' '		; SIGN FLAG BYTE
+                
+                PRIVATE$STACK:
+ 0564 DEADBEEF  	DB	0DEH, 0ADH, 0BEH, 0EFH
+ 0568 DEADBEEF  	DB	0DEH, 0ADH, 0BEH, 0EFH
+ 056C DEADBEEF  	DB	0DEH, 0ADH, 0BEH, 0EFH
+ 0570 DEADBEEF  	DB	0DEH, 0ADH, 0BEH, 0EFH
+ 0574 DEADBEEF  	DB	0DEH, 0ADH, 0BEH, 0EFH
+ 0578 DEADBEEF  	DB	0DEH, 0ADH, 0BEH, 0EFH
+ 057C DEADBEEF  	DB	0DEH, 0ADH, 0BEH, 0EFH
+ 0580 DEADBEEF  	DB	0DEH, 0ADH, 0BEH, 0EFH
+                
+                ; END OF TINY PASCAL RUN TIME ROUTINES, BEGIN OF TRANSLATED P-CODE
+ 0584           PROGB:	END	0100H
