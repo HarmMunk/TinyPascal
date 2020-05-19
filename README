@@ -1,17 +1,17 @@
-This TinyPascal repository contain the source, example and test files of the Tiny Pascal compiler system, adapted for CP/M.
+This TinyPascal repository contains the source, example and test files of the Tiny Pascal compiler system, adapted for CP/M.
 
-The original Tiny Pascal system was developed in 1978 by Herbert Yuan and Kin-Man Chung for the North Star microcomputer. It was published
-in three articles in Byte magazine in September, October and December 1978.
+The original Tiny Pascal system was developed in 1978 by Herbert Yuan and Kin-Man Chung for the Intel 8080-based North Star microcomputer.
+It was published in three articles in Byte magazine in September, October and December 1978.
 
-I rewrote the system in 1982 for the casette based Microsoft Basic 5 interpreter on an Exidy Sorcerer. In 2012-2014 I resurrected
+I rewrote the system in 1982 for the casette-based Microsoft Basic 5 interpreter on an Exidy Sorcerer. In 2012-2014 I resurrected
 that version on the SIMH altair Z80 simulator and added some CP/M extensions. Unfortunately, I lost the source files of that 2012 version,
 so during the corona pandemic I scanned the listings and implemented (and debugged/corrected) the CP/M version anew.
 
 The compiler in MBASIC is loosely based on the Yuan and Chung version in the sense that I kept some of the variable names. Other than that,
-it is a complete rewrite of the compiler, including some language changes. The compiler (TPC.BAS) compiles Tiny Pascal source code to pseudocode
-(or P-code).
+it is a complete rewrite of the compiler, including some language changes. The compiler (TPC.BAS) compiles Tiny Pascal source code to
+pseudocode (or P-code).
 
-Back in 1982 I rewrote both the translator (TRANS.BAS) and the run-time system. In 2012 I added minimal CP/M support by providing a standard
-function BDOS that accesses the CP/M basic disk operating system.
+Back in 1982 I rewrote both the translator (TRANS.BAS) and the run-time system. In 2012 I added minimal CP/M support by providing a
+standard function BDOS that accesses the CP/M basic disk operating system.
 
 I also added some test files, an implementation of the mastermind game, and a P-code interpreter, based on the one Yen and Chung's article.
