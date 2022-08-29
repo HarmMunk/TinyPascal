@@ -15,4 +15,4 @@ Back in 1982 I rewrote both the translator (TRANS.BAS) and the run-time system. 
 standard function BDOS that accesses the CP/M basic disk operating system.
 
 I also added some test files, an implementation of the mastermind game, and a P-code dump program, based on the one Yen and Chung's article.
-That last program can be used as the starting point for a P-code interpreter,
+That last program can be used as the starting point for a P-code interpreter.
