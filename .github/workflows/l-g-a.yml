@@ -10,10 +10,3 @@ jobs:
           node-version: '14'
       - run: npm install -g bats
       - run: bats -v
-
-on: [pull]
-jobs:
-  identify-tool-version:
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "hello world"

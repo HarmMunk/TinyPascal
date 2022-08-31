@@ -1,0 +1,8 @@
+name: on-pull-workflow
+
+on: [pull]
+jobs:
+  identify-tool-version:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "hello world"
