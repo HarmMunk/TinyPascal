@@ -1,4 +1,5 @@
 name: when-someone-pulls
+# just a comment
 
 on: [pull]
 jobs:
