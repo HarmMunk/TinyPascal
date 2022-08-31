@@ -13,7 +13,7 @@ jobs:
 
 on: [pull]
 jobs:
-  identify-tool-version
-  runs-on: ubuntu-latest
-  steps:
-    run: echo "hello world"
+  identify-tool-version:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "hello world"
