@@ -1,7 +1,7 @@
 name: when-someone-pulls
 # just a comment
 
-on: [pull]
+on: [pull_request]
 jobs:
   identify-tool-version:
     runs-on: ubuntu-latest
