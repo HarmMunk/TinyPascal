@@ -1,4 +1,4 @@
-name: on-pull-workflow
+name: when-someone-pulls
 
 on: [pull]
 jobs:
