@@ -1,7 +1,6 @@
 name: when-someone-pulls
-# just a comment and some less
 
-on: [pull_request_bla]
+on: [pull_request]
 
 jobs:
   identify-tool-version:
