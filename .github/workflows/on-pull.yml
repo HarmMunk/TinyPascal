@@ -1,5 +1,5 @@
 name: when-someone-pulls
-# just a comment
+# just a comment and some more
 
 on: [pull_request]
 
@@ -8,4 +8,3 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: echo "hello world"
-      
