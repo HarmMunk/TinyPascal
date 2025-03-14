@@ -3,7 +3,7 @@ This TinyPascal repository contains the source, example and test files of the Ti
 The original Tiny Pascal system was developed in 1978 by Herbert Yuan and Kin-Man Chung for the Intel 8080-based North Star microcomputer.
 It was published in three articles in Byte magazine in September, October and December 1978.
 
-I rewrote the system in 1982 for the casette-based Microsoft Basic 5 interpreter on an Exidy Sorcerer. In 2012-2014 I resurrected
+I rewrote the system in 1982 for the cassette-based Microsoft Basic 5 interpreter on an Exidy Sorcerer. In 2012-2014 I resurrected
 that version on the SIMH altair Z80 simulator and added some CP/M extensions. Unfortunately, I lost the source files of that 2012 version,
 so during the corona pandemic I scanned the listings and implemented (and debugged/corrected) the CP/M version anew.
 
