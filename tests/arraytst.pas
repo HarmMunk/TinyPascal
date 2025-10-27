@@ -5,7 +5,8 @@ var
   i, j, k: integer;
   a: array [low..up, low..up, low..up] of integer;
   c, d, e: array [low..up, low..up] of integer;
-  
+  b: array[0..1] of integer;
+    
 begin
   for i:= low to up do
     for j:= low to up do
@@ -58,4 +59,7 @@ begin
     writeln
   end;
 
+  j := 1; b[j] := 0;
+  
 end.
+
