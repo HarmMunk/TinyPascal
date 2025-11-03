@@ -25,16 +25,16 @@ const
 	var
 		d : integer;
 
-		procedure printhexdigit(d : integer);
+		procedure printHexDigit(d : integer);
 		begin
 			if d<10 then
 				write(('0' + d)$)
 			else write(('A' + d - 10)$)
-		end printhexdigit;
+		end printHexDigit;
 		
 	begin
-		printhexdigit((b div 16) mod 16);
-		printhexdigit(b mod 16)
+		printHexDigit((b div 16) mod 16);
+		printHexDigit(b mod 16)
 	end printHexByte;
 		
 const
