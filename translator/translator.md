@@ -46,14 +46,35 @@ time support routines.
 A file is opened and closed by the subroutine that requires it, unless 
 closing a file would mean that the current position is lost.
 
+### Debug Levels
+The translator has four debug levels. The debugging level is set through the variable ```DBG``` in line 1000:
+
+0. No debugging information;
+1. The start and end of the phases of the translator are printed. While translating, each P-code instruction is printed together with optimisation information, if applicable. Also, instruction that reference other instructions are marked;
+2. In addition to level 1. some more details during each phase is printed, such as the number of pages of code making up the *RTS* that are moved from the ```PRUN.LIB``` to the executable ```.COM``` file;
+3. In addition to level 2. detailed information during some of the phases of the translator are printed, such as the content of the table with addresses of the subroutines implementing the *RTS*.
+
+### Optimisations
+The translator has four optimisation levels. The optimisation level is determined by the variable ```OPT``` in line 1000. See the table below for a detailed list of all optimisations:
+
+0. No optimisations;
+1. Instructions that do not change the state of the P-code machine except for the program index are removed:
+
+     ```
+     n   JMP n+1
+     n+1 ...
+     ```
+     can safely be removed.
+
+2. In addition to the level 1. optimisations, some instructions with particular parameters are translated in more efficient machine code.
+3. In addition to level 2. optimisations, optimisations that require some more code analysis are implemented. In the current version, that means that some ```STO```-```LOD``` sequences are optimised. However this requires a pre-scan of the P-code program to find out if ```LOD``` instructions are the target of a ```JMP```, ```JPC```, or ```CAL``` instruction.
 ## Annotated Listing
 ### Initialisation
 #### Definitions
 ```
-10 DEFINT A-Z:FALSE=0:TRUE=NOT FALSE
+10 DEFINT A-Z
 ```
-All variables are integers unless otherwise specified. For convenience, 
-FALSE and TRUE are defined.
+All variables are integers unless otherwise specified.
 ```
 100 DEF FNHEXN$(A,N)=STRING$(N-LEN(HEX$(A)),"0")+HEX$(A)
 ```
@@ -77,37 +98,47 @@ Function ```FNBTV(REC$,OFS)``` (**B**y**T**e **V**alue) returns the value of the
 ```
 150 DEF FNRCN(L,R)=INT(FNABSW!(L)/R):DEF FNOFS(L,R)=FNABSW!(L) MOD R
 ```
-
+```FNRCN(L,R)``` computes the **R**e**C**ord **N**umber given a particular offset ```L``` in bytes of a location based on a record length ```R```. ```FNOFS(L,R)``` computes the **OF**f**S**et in a record given a byte offet ```L```in the file and a record length ```R```. 
 ```
-160 DEF FNMIN(A,B)=-(A>B)*B-(B>=A)*A:DEF FNMAX(A,B)=-(A<B)*B-(A>=B)*A
+160 DEF FNMIN(A,B)=-(A>B)*B-(B>=A)*A
+```
+```FNMIN(A,B)``` return the **MIN**imum of ```A``` and ```B```.
+```
 170 DEF FNRNG(A)=A>=ASC(" ")AND A<=ASC("~"):DEF FNCHAR$(A)=CHR$(A*(-FNRNG(A))-46*(NOT FNRNG(A)))
 ```
+```FNRNG(A)``` returns ```TRUE``` if ```A``` is in the **R**a**NG**e of ASCII values of printable characters. ```FNCHAR$(A)``` returns the character with ASCII value ```A``` if it is printable, otherwise it returns a '.' .
 
-CLS$ is the "Clear Screen" character sequence for the VT-100 terminal.
+```
+200 MJR=0:MNR=1
+```
+The expected major and minor version number of the *RTS*.
+```
+210 SGNON$="P-CODE TO 8080 TRANSLATOR"
+```
 SGNON$ is the translator's sign-on message.
+```
+220 TRF=0
+```
+```TRF``` (**T**otal number of **R**e**F**erences) is the total number of references, forward as well as backward.
+```
+230 DIM NOPT[3]
+```
+The array ```NOPT``` keeps track of the **N**umber of **OPT**imisations at each of the levels 1, 2 and 3. The elements of an array are initilased to 0 in MBASIC.
+```
+240 DIM TLOD[50]:TLDI=0
+```
+The array ```TLOD``` keeps track of the total number of **T**argeted ```LOD``` P-code instructions, e.i., ```LOD``` instructions that are the target of a ```JMP```, a ```JPC``` or a ```CAL``` instruction. ```TLDI``` is the **I**ndex of the first free element in array ```TLOD```.
 
-Lines 100-199: Definition of auxilliary functions
-FNHEXN$(NUM,LEN): print NUM in hexadecimal form, with LEN digits, 
-padding the string with zero's on the left.
-
-FNMEMW(I!): Convert the real number I! between 0 and 65535 into an 
-integer between -32768 and +32767. In MSBASIC 5 an int is always 
-between -32768 and 32767, but arithmatic on addresses can yield results 
-larger than 32767. This function is the opposite of FNABSW!().
-
-FNABSW!(I.): Convert the integer I. between -32768 and +32767 into a 
-real number between 0 and 65535. This function is the opposite of 
-FNMEMW().
-
-FNHIGH.BYTE(I): Return the high byte of I.
-FNLOW.BYTE(I): Return the low byte of I.
-
-FNEO.PCFILE(CO1, CO2): Return the end of file status of the P-code 
-file, which is signified by two words with the value FFFF hexadecimal.
-
-FNREFINST(Q1, Q2): Return true if the P-code instruction (Q1, Q2) is a 
-JMP, JPC or a CSR.
-
+```
+1000 PRINT SGNON$:DBG=2:OPL=3
+```
+Print the sign-on message. Set the 
+```
+1010 PRINT USING"Optimisation level = #. ";OPL;:INPUT"P-code file name (.PCD is assumed)";SFBN$
+1020 INPUT"Want P-codes listed";PLF$
+1030 TAF$=SFBN$+".$$$":TAF=2:OPEN"O",TAF,TAF$:CLOSE TAF:KILL TAF$:EXF$=SFBN$+".COM":EXF=1:OPEN"O",EXF,EXF$:CLOSE EXF:KILL EXF$
+1040 PXN$=SFBN$+".PAX":PXN=1:OPEN"O",PXN,PXN$:CLOSE PXN:KILL PXN$:PAL$=SFBN$+".LSA":PAL=2:OPEN"O",PAL,PAL$:CLOSE PAL:KILL PAL$:PCF$=SFBN$+".PCD":PCF=3:OPEN"I",PCF,PCF$:CLOSE PCF
+```
 Lines 200-299 Ask for name of the P-code file and construct other 
 filenames.
 
