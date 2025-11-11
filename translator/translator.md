@@ -68,6 +68,24 @@ The translator has four optimisation levels. The optimisation level is determine
 
 2. In addition to the level 1. optimisations, some instructions with particular parameters are translated in more efficient machine code.
 3. In addition to level 2. optimisations, optimisations that require some more code analysis are implemented. In the current version, that means that some ```STO```-```LOD``` sequences are optimised. However this requires a pre-scan of the P-code program to find out if ```LOD``` instructions are the target of a ```JMP```, ```JPC```, or ```CAL``` instruction.
+
+The following table lists the implemented optimisations.
+
+
+|Level|Optimisation|Example|Original assembly code|Optimised assembly code|
+|---|---|---|---|---|
+|1|Remove unnecesary jumps|```n JMP n+1```|```JMP m```|No code|
+|1|Increase stack pointer by 0|```INT 0```|```LXI H,0```<br>```CALL INT```|No code|
+|2|Load 0 on top of the stack (See Note 1)|```LIT 0```|```LXI B,0```<br>```CALL INT```|```XRA A```<br>```STAX D```<br>```INX D```<br>```STAX D```<br>```INX D```<br>```CALL STACK$CHK```|
+|2|Negate 0|```LIT 0```<br>```OPR 0,1```|```<code for LIT 0>```<br>```CALL OPR00$01```|No code|
+|2|Negate constant|```LIT n```<br>```OPR 0,1```|```LXI B,n```<br>```CALL LIT```<br>```CALL OPR00$01```|```LXI B,-n```<br>```CALL LIT```|
+|2|Replace adding or subtracting small constants smaller than 3 by repeated calls to ```INC``` or ```DEC```. If n=0 then the ```LIT 0``` and the ```OPR 0,m``` (m=2 or 3) is quashed.|```LIT 2```<br>```OPR 0,2```<br><br>```LIT 1```<br>```OPR 0,3```|```LXI B,2```<br>```CALL OPR00$02```<br><br>```LXI B,1```<br>```CALL OPR00$03```|```CALL OPR00$13```<br>repeated n times<br><br>```CALL OPR00$14```<br>repeated n times|
+|3|Store followed by a load of the same variable. Such a sequence can be quashed, but only if the ```LOD``` is _not_ the target of a jump or call instruction. See Note 2.||||
+
+
+**_Note_ 1** In the original Chen and Huang translator there was no call to the ```CHECK$STC``` routine which is rare and unexpected cases could cause the stack to overflow in unwanted areas, e.g., the BDOS in CP/M.
+**_Note_ 2** This optimisation requires a pre-analysis of the whole P-code file to register all ```LOD``` instructions that are the target of a ```JMP```, ```JPC``` or ```CALL```. Because this can be a time consuming analysis, it is only executed if the optimisation level is 3.
+
 ## Annotated Listing
 ### Initialisation
 #### Definitions
