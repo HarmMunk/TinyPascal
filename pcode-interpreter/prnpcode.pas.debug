@@ -18,25 +18,55 @@ const
 			writeln('new -- error:', length, 'requested,', old_a - new_a, 'reserved.');
 			exit(system_error + 1)
 		end;
-		new := new_a
+		new := new_a;
 	end new;
 		
-	procedure printHexByte(b : integer);
+    procedure printChar(ch : char);
+    begin
+        if ch < ' ' then
+            write('.')
+        else if ch > 126 then
+            write(':')
+        else
+            write(ch$)
+    end printChar;
+    
+	procedure printhexbyte(b : integer);
 	var
 		d : integer;
 
-		procedure printHexDigit(d : integer);
+		procedure printhexdigit(d : integer);
 		begin
 			if d<10 then
 				write(('0' + d)$)
 			else write(('A' + d - 10)$)
-		end printHexDigit;
+		end printhexdigit;
 		
 	begin
-		printHexDigit((b div 16) mod 16);
-		printHexDigit(b mod 16)
-	end printHexByte;
+		printhexdigit((b div 16) mod 16);
+		printhexdigit(b mod 16)
+	end printhexbyte;
 		
+    procedure printBlock(first, last : integer);
+    var
+        addr, j : integer;
+    begin
+        j := 0;
+        write(first%);
+        for addr := first to last do begin
+            printhexbyte(mem[addr]); write(' ');
+            if j=15 then begin
+                for j := addr-15 to addr do
+                    printChar(mem[j]);;
+                writeln; write(succ(addr)%);
+                j := 15
+            end;
+            j := succ(j) mod 16
+        end;
+        writeln;
+        writeln('********************')
+    end printBlock;
+
 const
     TP_FCB_LEN = 2;     {Tiny Pascal file control block length}
     TP_FCB_BYTECNT = 0; {Tiny Pascal number of bytes read offset}
@@ -78,7 +108,9 @@ var
 	var
 		i : integer;
 		TP_FCB, CPM_FCB : integer;
+        oa: integer;
 	begin
+        oa := stacktop(0);
 		TP_FCB := new(TP_FCB_LEN + CPM_FCB_LEN + CPM_DMA_BUFLEN);
         { A TP FCB contains TP file administration, the CP/M FCB, and
         * the CP/M file DMA buffer}
@@ -87,14 +119,27 @@ var
 			mem[CPM_FCB + i] := mem[name + i];
 		for i := CPM_DFN_LEN to CPM_FCB_LEN - 1 do	{Null rest of FCB}
 			mem[CPM_FCB + i] := 0;
+{
+        writeln('Reserved', (oa-TP_FCB)%, 'bytes. TP_FCB:', TP_FCB%, ', CPM_FCB:', CPM_FCB%);
+        writeln('******** CPM_makeFCB ********');
+}
+{
+        printBlock(TP_FCB, TP_FCB + TP_FCB_LEN + CPM_FCB_LEN + CPM_DMA_BUFLEN);
+}
 		CPM_makeFCB := CPM_FCB
 	end CPM_makeFCB;
 	
 	function openFile(FCB : integer) : integer;
 	begin
+{
+        writeln('******** openFile ********');
+}
         mem[FCB - TP_FCB_LEN + TP_FCB_BYTECNT] := 0;
         mem[FCB - TP_FCB_LEN + TP_FCB_EMPTY  ] := 1;
-		openFile := bdos(CPM_BDOS_OPEN, FCB)
+		openFile := bdos(CPM_BDOS_OPEN, FCB);
+{
+        printBlock(FCB - TP_FCB_LEN, FCB + CPM_FCB_LEN + CPM_DMA_BUFLEN);
+}
 	end openFile;
     
     function eof(FCB : integer) : boolean;
@@ -102,12 +147,21 @@ var
         bdos_result : integer;
         old_DMA_addr : integer;
     begin
+{
+        writeln('******** eof ********');
+}
+{
+        printBlock(FCB - TP_FCB_LEN, FCB + CPM_FCB_LEN + CPM_DMA_BUFLEN);
+}
         if mem[FCB - TP_FCB_LEN + TP_FCB_EMPTY] = 1 then begin{ Must get next sector }
             old_DMA_addr := CPMCurrentDMAAddress;
             CPM_SetDMAAddr(FCB + CPM_FCB_LEN);
             bdos_result := bdos(CPM_BDOS_READSEQ, FCB);
             CPM_SetDMAAddr(old_DMA_addr);
             if bdos_result = 0 then begin
+{
+                writeln('next sector read');
+}
                 mem[FCB - TP_FCB_LEN + TP_FCB_BYTECNT] := 0;
                 mem[FCB - TP_FCB_LEN + TP_FCB_EMPTY] := 0;
                 eof := false
@@ -116,20 +170,29 @@ var
                 eof := true
         end
         else
-            eof := false
+            eof := false;
+{
+        printBlock(FCB - TP_FCB_LEN, FCB + CPM_FCB_LEN + CPM_DMA_BUFLEN)
+}
     end eof;
     
     function getbyte(FCB) : char;
     var
         bytecnt : integer;
     begin
+{
+        writeln('******** getbyte ********');
+}
         bytecnt := mem[FCB - TP_FCB_LEN + TP_FCB_BYTECNT];
         getbyte := mem[FCB + CPM_FCB_LEN + bytecnt];
         if not eof(FCB) then
             if bytecnt = CPM_DMA_BUFLEN - 1 then
                 mem[FCB - TP_FCB_LEN + TP_FCB_EMPTY] := 1
             else
-                mem[FCB - TP_FCB_LEN + TP_FCB_BYTECNT] := bytecnt + 1
+                mem[FCB - TP_FCB_LEN + TP_FCB_BYTECNT] := bytecnt + 1;
+{
+        printBlock(FCB - TP_FCB_LEN, FCB + CPM_FCB_LEN + CPM_DMA_BUFLEN)
+}
     end getbyte;
     
     function closeFile(FCB : integer) : integer;
@@ -191,7 +254,7 @@ const
         else
             write('???  ')
         end;
-        printHexByte(p1);
+        printhexbyte(p1);
         write(', ', p2)
     end writePCode;
     
@@ -204,8 +267,11 @@ const
 var
 	pcode_end : boolean;
 	PCodeFile : integer;
+	bdos_result : integer;
     opcode, p1, p2 : integer;
     pcode_index : integer;
+    i, j : integer;
+    a : array[0..15] of integer;
 	
 begin
 	CPM_Init;
@@ -225,14 +291,28 @@ begin
 	end;
 
     pcode_end := false; pcode_index := 0;
+{
+    i := 0;
+}
     while not (eof(PCodeFile) or (pcode_end)) do begin
+{
+        p1 := getbyte(PCodeFile);
+        if (i mod 16) = 0 then
+            write(i%, ':');
+        write(' '); printhexbyte(p1);
+        a[i mod 16] := p1;
+        if (i mod 16) = 15 then begin
+            write('  ');
+            for j := 0 to 15 do
+                printChar(a[j]);
+            writeln;
+        end;
+        i := succ(i)
+}
         p1 := getbyte(PCodeFile); opcode := getbyte(PCodeFile);
         p2 := getbyte(PCodeFile) or (getbyte(PCodeFile) shl 8);
-        pcode_end := (opcode = %FF) and (p1 = %FF) and (p2 = %FFFF);
-        if not pcode_end then begin
-            write(pcode_index, ': '); writelnPCode(opcode, p1, p2)
-        end;
-        pcode_index := succ(pcode_index)
+        write(pcode_index, ': '); writelnPCode(opcode, p1, p2);
+        pcode_end := (opcode = %FF) and (p1 = %FF) and (p2 = %FFFF); pcode_index := succ(pcode_index)
     end;
     
     if closeFile(PCodeFile) = %FF then begin

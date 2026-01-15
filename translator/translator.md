@@ -76,15 +76,17 @@ The following table lists the implemented optimisations.
 |---|---|---|---|---|
 |1|Remove unnecesary jumps|```n JMP n+1```|```JMP m```|No code|
 |1|Increase stack pointer by 0|```INT 0```|```LXI H,0```<br>```CALL INT```|No code|
-|2|Load 0 on top of the stack (See Note 1)|```LIT 0```|```LXI B,0```<br>```CALL INT```|```XRA A```<br>```STAX D```<br>```INX D```<br>```STAX D```<br>```INX D```<br>```CALL STACK$CHK```|
+|2|Increase stackpointer by a small constant n (-4<n<3)<br>(See Note 1)|```INT n```|```LXI H,2n```<br>```CALL INT```|```INX D``` (repeated 2n times if n>0)<br>```CALL STACK$CHK```<br>or<br>```DCX D``` (repeated 2n times if n<0)|>)
+|2|Load 0 on top of the stack<br>(See Note 1)|```LIT 0```|```LXI B,0```<br>```CALL INT```|```XRA A```<br>```STAX D```<br>```INX D```<br>```STAX D```<br>```INX D```<br>```CALL STACK$CHK```|
 |2|Negate 0|```LIT 0```<br>```OPR 0,1```|```<code for LIT 0>```<br>```CALL OPR00$01```|No code|
 |2|Negate constant|```LIT n```<br>```OPR 0,1```|```LXI B,n```<br>```CALL LIT```<br>```CALL OPR00$01```|```LXI B,-n```<br>```CALL LIT```|
-|2|Replace adding or subtracting small constants smaller than 3 by repeated calls to ```INC``` or ```DEC```. If n=0 then the ```LIT 0``` and the ```OPR 0,m``` (m=2 or 3) is quashed.|```LIT 2```<br>```OPR 0,2```<br><br>```LIT 1```<br>```OPR 0,3```|```LXI B,2```<br>```CALL OPR00$02```<br><br>```LXI B,1```<br>```CALL OPR00$03```|```CALL OPR00$13```<br>repeated n times<br><br>```CALL OPR00$14```<br>repeated n times|
-|3|Store followed by a load of the same variable. Such a sequence can be quashed, but only if the ```LOD``` is _not_ the target of a jump or call instruction. See Note 2.||||
+|2|Replace adding or subtracting small constants smaller than 3 by repeated calls to ```INC``` or ```DEC```. If n=0 then the ```LIT 0``` and the ```OPR 0,m``` (m=2 or 3) is quashed|```LIT 2```<br>```OPR 0,2```<br><br>```LIT 1```<br>```OPR 0,3```|```LXI B,2```<br>```CALL OPR00$02```<br><br>```LXI B,1```<br>```CALL OPR00$03```|```CALL OPR00$13```<br>repeated n times<br><br>```CALL OPR00$14```<br>repeated n times|
+|3|Store followed by a load of the same variable. Such a sequence can be quashed, but only if the load is _not_ the target of a jump or call instruction<br>(See Note 2.)|```STO v,d```<br>```LOD v,d```|```LXI B,2d```<br>```MVI A,v```<br>```CALL STO```<br>```LXI B,2d```<br>```MVI A,v```<br>```CALL LOD```|```LXI B,2d```<br>```MVI A,v```<br>```CALL STO```<br>```INX D```<br>```INX D```<br>|
 
 
-**_Note_ 1** In the original Chen and Huang translator there was no call to the ```CHECK$STC``` routine which is rare and unexpected cases could cause the stack to overflow in unwanted areas, e.g., the BDOS in CP/M.
-**_Note_ 2** This optimisation requires a pre-analysis of the whole P-code file to register all ```LOD``` instructions that are the target of a ```JMP```, ```JPC``` or ```CALL```. Because this can be a time consuming analysis, it is only executed if the optimisation level is 3.
+**_Note_ 1.** In the original Chen and Huang translator there was no call to the ```CHECK$STC``` routine which in rare and unexpected cases could cause the stack to overflow in unwanted areas, e.g., the BDOS in CP/M.
+
+**_Note_ 2.** This optimisation requires a pre-analysis of the whole P-code file to register all ```LOD``` instructions that are the target of a ```JMP```, ```JPC``` or ```CALL```. Because this can be a time consuming analysis, this analysis is only executed if the optimisation level is 3.
 
 ## Annotated Listing
 ### Initialisation
@@ -141,7 +143,7 @@ SGNON$ is the translator's sign-on message.
 ```
 230 DIM NOPT[3]
 ```
-The array ```NOPT``` keeps track of the **N**umber of **OPT**imisations at each of the levels 1, 2 and 3. The elements of an array are initilased to 0 in MBASIC.
+The array ```NOPT``` keeps track of the **N**umber of **OPT**imisations at each of the levels 1, 2 and 3. The elements of an array are initialised to 0 in MBASIC.
 ```
 240 DIM TLOD[50]:TLDI=0
 ```
@@ -150,36 +152,98 @@ The array ```TLOD``` keeps track of the total number of **T**argeted ```LOD``` P
 ```
 1000 PRINT SGNON$:DBG=2:OPL=3
 ```
-Print the sign-on message. Set the 
+Print the sign-on message. Set the optimisation level (0..3).
 ```
 1010 PRINT USING"Optimisation level = #. ";OPL;:INPUT"P-code file name (.PCD is assumed)";SFBN$
+```
+Print the optimisation level and ask for the name of the P-code file. The extension ```.PCD``` is assumed, meaning that the translator adds it.
+```
 1020 INPUT"Want P-codes listed";PLF$
+```
+Aks if the P-codes must be listed. Depending on the size of the P-code program, this can take quite some processing. But is does relate the P-code addresses to the 8080 assembly code addresses, so it can be usefull in debugging, especially debugging the *RTS*.
+
+Next, the names and file numbers of a the files needed and produced by the translator are defined. All these defintions follow the same pattern:
+
+- definition of the name of the file, which is the base name (*SFBN$*) concatenated with an extension;
+- definition of the file number;
+- if required, an existing version of the file is deleted. This is done by opening the file, which, if it exsists, will delete the existing file of the same name, and, if it does not exist, will simply create an empty file. Next the file is closed and "KILL"-ed, effectively deleting it. Note that simply killing the file will result in an error if the file does not exist.
+```
 1030 TAF$=SFBN$+".$$$":TAF=2:OPEN"O",TAF,TAF$:CLOSE TAF:KILL TAF$:EXF$=SFBN$+".COM":EXF=1:OPEN"O",EXF,EXF$:CLOSE EXF:KILL EXF$
+```
+```TAF``` is the temporary 8080 assembly code files. It is later renamed to the final name, ```EXF```, which is defined next.
+```
 1040 PXN$=SFBN$+".PAX":PXN=1:OPEN"O",PXN,PXN$:CLOSE PXN:KILL PXN$:PAL$=SFBN$+".LSA":PAL=2:OPEN"O",PAL,PAL$:CLOSE PAL:KILL PAL$:PCF$=SFBN$+".PCD":PCF=3:OPEN"I",PCF,PCF$:CLOSE PCF
 ```
-Lines 200-299 Ask for name of the P-code file and construct other 
-filenames.
+The ```PXN``` file contains the cross references between the P-code addresses and the 8080 assembly code addresses. This file simply consists of 16 bit addresses of 8080 assembly code address. The cross reference with the P-code address is simply the location of the address in the file.
 
-Print the sign-on message.
-Set the debug level:
-0 - No debug
-1 - Only messages announcing the phases of the translation
-2 - Messages detailing progress and intermediate results
+The ```PAL``` contains the P-code listing with 8080 assembly code address added.
 
-Construct the names of the P-code file and the 8080-Assembly file. The 
-P-code file is opened and closed for input, because during translation 
-the file kept open in random mode ("R"). Opening a file in random mode 
-always succeeds, so it is not possible to tell if the P-code file 
-exists if the file is opened in random mode.
+The ```PCF``` file contains the P-code program in binary form. Next, an attempt is made to open this file (it is, obviously, not deleted!), and if that fails, the user typed the wrong name, of the file is not present.
 
-Lines ?-? Prepare the run time support
-Open the file  constaining the runtime support (RTS) routines. It is 
-opened as a random access file with a field length of 128 bytes to 
-speed up access.
-The first three bytes in this file contain a jump to the INIT routine 
-of the RTS. The next word contains the location in the file where a 
-table is stored containing the addresses of the of the RTS functions.
+### THe High Level Translation Process
+```
+1050 GOSUB 21000
+```
+This subroutines fills array ```OPCODE$``` with string naming the P-code instructions.
+```
+1060 RTS$="PRUN.LIB":RTS=3:RLN=128:GOSUB 22000
+```
+One more file is defined: the file containing the *RTS*. The record length, ```RLN```, for this file is set to 128 bytes. Next, tables with information of the *RTS* are read.
+```
+1070 IF OPL>2 THEN GOSUB 20000
+```
+If the optimisation level is 3, then the addresses of all ```JMP```, ```JPC``` and ```CAL``` instructions ```LOD``` instructions are required. The subroutine at line 20000 collects these address. If the P-code program is large, this process can take quite some time. Therefore it is skipped if the optimisation level excludes this optimisation.
+```
+1080 GOSUB 23000:GOSUB 26000
+```
+Next, the P-code file is translated into 8080 assembly code (the subroutine at line 23000), and the INIT routine is moved into place at the end of the generated 8080 assembly code (subroutine at line 26000).
+```
+1090 IF LEFT$(PLF$,1)="Y"OR LEFT$(PLF$,1)="y"THEN GOSUB 27000
+```
+If the user requested a P-code luisting with 8080 assembly code address (answer was stored in ```PLF```), then this file is generated by the subroutine at line 27000.
+```
+1100 IF DBG>0 THEN PRINT"Stack starts at ";FNHEXN$(SBM,4)
+```
+If the debug level is at least one the start address of the P-stack is printed.
+```
+1110 NAME PLN$ AS EXF$
+1120 IF DBG=0 THEN KILL PXN$
+```
+The temporarily named 8080 assembly code file is renamed to a file with a name with extension ```.COM```.
+```
+1130 GOSUB 28000
+1140 END
+```
+Next, a short summary of the translation process is printed, and the program finishes.
 
+### Initialising the ```OPCODE$``` array
+This is a very simple subroutine, reading the string representation of the P-code instruction at line 21010, and storing them at the appropriate location in the ```OPCODE$``` array. E.g., a ```LOD``` instruction is represented by the opcode with the value 2, so ```OPCODE[2]``` has the value ```LOD```, etc.
+```
+21000 DIM OPCODE$[8]:RESTORE 21000:FOR I=0 TO 8:READ OPCODE$[I]:NEXT:RETURN
+21010 DATA LIT,OPR,LOD,STO,CAL,INT,JMP,JPC,CSP
+```
+### Reading Information from the *RTS* FILE
+```
+22000 IF DBG>0 THEN PRINT"Reading RTS table"
+22010 OPEN"R",#RTS,RTS$,RLN:FIELD#RTS,RLN AS RCRD$:GET#RTS,1:TBAD=FNWDV(RCRD$,4)-&H100:TBRN=FNRCN(TBAD,RLN):TBOF=FNOFS(TBAD,RLN):IF TBOF<>0 THEN PRINT"RTS info should start at offset 0, but offset is"TBOF:STOP
+22020 IF DBG>1 THEN PRINT"RTS info on page "FNHEXN$(TBRN,2)
+22030 GET#RTS,TBRN+1:VN.MJ=FNBTV(RCRD$,1):VN.MN=FNBTV(RCRD$,2):VN.BF=FNBTV(RCRD$,3):PROGB=FNWDV(RCRD$,5):TBL.LNADR=FNWDV(RCRD$,7)-&H100:INILA=FNWDV(RCRD$,9)-&H100:STCK=FNWDV(RCRD$,11)
+22040 IF VN.MJ<>MJR OR VN.MN<MNR THEN PRINT"Incompatible RTS version!":STOP
+22050 IF DBG>1 THEN PRINT"RTS version:"VN.MJ"."VN.MN"."VN.BF:PRINT"Translated P-code starts at "FNHEXN$(PROGB,4):PRINT"RTS table is at file address "FNHEXN$(TBL.LNADR,4):PRINT"INIT is at file address "FNHEXN$(INILA,4)
+22060 GET#RTS,FNRCN(TBL.LNADR,RLN)+1:TABLELEN=CVI(MID$(RCRD$,1,2))
+22070 DIM PRTB[63]:FOR I=O TO TABLELEN-1:PRTB[I]=FNWDV(RCRD$,3+2*I):NEXT:IF DBG>2 THEN PRINT"RTS addresses:":FOR I=0 TO TABLELEN-1:PRINT I,FNHEXN$(PRTB[I],4):NEXT:PRINT
+22080 DIM P2R[8]:J=2*TABLELEN:FOR I=0 TO 8:P2R[I]=FNWDV(RCRD$,3+J+2*I):NEXT
+22090 IF DBG>2 THEN FOR I=0 TO 8:PRINT OPCODE$[I],FNHEXN$(P2R[I],4):NEXT
+22100 IF DBG>0 THEN PRINT" Done reading RTS table"
+22110 IF DBG>0 THEN PRINT"Copying RTS"
+22120 OPEN"R",#PLN,PLN$,RLN:FIELD#PLN,RLN AS DST$
+22130 N.BYTES=PROGB-&H100:N.PAGES=(N.BYTES+127)\128:IF DBG>1 THEN PRINT" Copying "N.BYTES"("HEX$(N.BYTES)") bytes = "N.PAGES" ("HEX$(N.PAGES)") pages"
+22140 FOR I=1 TO N.PAGES:GET#RTS,I:LSET DST$=RCRD$:PUT#PLN,I:IF DBG>1 THEN PRINT I;
+22150 NEXT:IF DBG>1 THEN PRINT
+22160 IF DBG>0 THEN PRINT" Done copying RTS"
+22170 CLOSE #RTS,#PLN
+22180 RETURN
+```
 ```
 24240 GET#PLN,PCPI:PCO1=CVI(CO1$):PCO2=CVI(CO2$):PQ1=PCO1\256:IF PQ1<>0 THEN 24220 ELSE IF CO2=1 THEN 24250 ELSE IF CO2=2 OR CO2=3 THEN 24270 ELSE STOP'CO2 (=OPR)  SHOULD BE 1, 2 OR 3
 ```
