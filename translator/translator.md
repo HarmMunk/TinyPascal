@@ -207,9 +207,13 @@ If the user requested a P-code luisting with 8080 assembly code address (answer 
 If the debug level is at least one the start address of the P-stack is printed.
 ```
 1110 NAME PLN$ AS EXF$
-1120 IF DBG=0 THEN KILL PXN$
 ```
 The temporarily named 8080 assembly code file is renamed to a file with a name with extension ```.COM```.
+```
+1120 IF DBG=0 THEN KILL PXN$
+```
+If debuggubg is not active, then kill the P-code addresses to 8080 assembly code adresses cross reference file.
+
 ```
 1130 GOSUB 28000
 1140 END
@@ -222,13 +226,21 @@ This is a very simple subroutine, reading the string representation of the P-cod
 21000 DIM OPCODE$[8]:RESTORE 21000:FOR I=0 TO 8:READ OPCODE$[I]:NEXT:RETURN
 21010 DATA LIT,OPR,LOD,STO,CAL,INT,JMP,JPC,CSP
 ```
-### Reading Information from the *RTS* FILE
+### Reading Information from the *RTS* File
+In the subroutine starting at line 22000 information on the *RTS* is read from the runtime library file.
 ```
 22000 IF DBG>0 THEN PRINT"Reading RTS table"
 22010 OPEN"R",#RTS,RTS$,RLN:FIELD#RTS,RLN AS RCRD$:GET#RTS,1:TBAD=FNWDV(RCRD$,4)-&H100:TBRN=FNRCN(TBAD,RLN):TBOF=FNOFS(TBAD,RLN):IF TBOF<>0 THEN PRINT"RTS info should start at offset 0, but offset is"TBOF:STOP
+```
+The first record is read from the RTS-file into string ```RCRD$```. It contains at byte offset 3 the address where the table with runtime routines is stored in the file. Note that characters in a string are addressed starting from 1, not from 0, so the word to be read using the ```FNWDV()``` function must addrss the word at index 4, not index 3 to get the at the right address. This could, and should have been hidden in the definition of the ```FNWDV()``` function, but I decided to leave the function definition as it is.(The same hold, btw, for the definition of the ```FNBTV()``` function.) This address is stored in ```TBAD```. Note that this table is part of file processed by the 8080 assembler and the loader of CP/M (```ASM``` and ```LOAD```), so it is supposed to be loaded at address 0100 hex. To find out in which record of the RTS-file this table is stored, the 0100 hex offset is first subtracted and then the record number and the offset within that record are computed and stored in ```TBRN``` and ```TBOF```, respectively. The offset within the record is supposed to be 0, and so if it is not this is assumed to be an error, and the Translator will stop in that case. This has been added as a sanity check.
+```
 22020 IF DBG>1 THEN PRINT"RTS info on page "FNHEXN$(TBRN,2)
 22030 GET#RTS,TBRN+1:VN.MJ=FNBTV(RCRD$,1):VN.MN=FNBTV(RCRD$,2):VN.BF=FNBTV(RCRD$,3):PROGB=FNWDV(RCRD$,5):TBL.LNADR=FNWDV(RCRD$,7)-&H100:INILA=FNWDV(RCRD$,9)-&H100:STCK=FNWDV(RCRD$,11)
 22040 IF VN.MJ<>MJR OR VN.MN<MNR THEN PRINT"Incompatible RTS version!":STOP
+```
+Next, the record containing the *RTS* information is read from disk. The first three bytes contain the major, minor and bug fix version numbers. The major and minor version numbers are compared to the expected major and minor version numbers and if they don't match the translation is aborted.
+```
+
 22050 IF DBG>1 THEN PRINT"RTS version:"VN.MJ"."VN.MN"."VN.BF:PRINT"Translated P-code starts at "FNHEXN$(PROGB,4):PRINT"RTS table is at file address "FNHEXN$(TBL.LNADR,4):PRINT"INIT is at file address "FNHEXN$(INILA,4)
 22060 GET#RTS,FNRCN(TBL.LNADR,RLN)+1:TABLELEN=CVI(MID$(RCRD$,1,2))
 22070 DIM PRTB[63]:FOR I=O TO TABLELEN-1:PRTB[I]=FNWDV(RCRD$,3+2*I):NEXT:IF DBG>2 THEN PRINT"RTS addresses:":FOR I=0 TO TABLELEN-1:PRINT I,FNHEXN$(PRTB[I],4):NEXT:PRINT
