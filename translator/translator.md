@@ -241,10 +241,10 @@ The first record is read from the RTS-file into string ```RCRD$```. It contains 
 Next, the record containing the *RTS* information is read from disk. (Note that, in CP/M records are numbered starting at 1.) The first three bytes contain the major, minor and bug fix version numbers. The major and minor version numbers are compared to the expected major and minor version numbers and if they don't match the translation is aborted.
 In addition the following information is read from this table:
 
-- ```PROGB``` location in memory where the translated P-code program starts;
-- ```TBL.LNADR```: location in the *RTS* file of the table containing the *RTS* routines;
-- ```INILA```: location in the *RTS* file of the initialisation routine;
-- ```STCK```: location in memory of the routine that checks the stack end address.
+- ```PROGB``` location *in memory* where the translated P-code program starts;
+- ```TBL.LNADR```: location *in the RTS* file of the table containing the *RTS* routines;
+- ```INILA```: location *in the RTS* file of the initialisation routine;
+- ```STCK```: location *in memory* of the routine that checks the stack end address.
 ```
 
 22050 IF DBG>1 THEN PRINT"RTS version:"VN.MJ"."VN.MN"."VN.BF:PRINT"Translated P-code starts at "FNHEXN$(PROGB,4):PRINT"RTS table is at file address "FNHEXN$(TBL.LNADR,4):PRINT"INIT is at file address "FNHEXN$(INILA,4)
@@ -291,6 +291,89 @@ Next, ```NPGS``` pages are transferred to the executable file.
 22160 IF DBG>0 THEN PRINT" Done copying RTS"
 22170 CLOSE #RTS,#TAF
 22180 RETURN
+```
+That concludes processing the *RTS* file.
+
+### Scanning the P-Code File for Targeted LOD Instructions
+
+```
+20000 IF DBG>0 THEN PRINT"Scanning for JMP/JPC targeting LODs"
+20010 OPEN"R",#PCF,PCF$,4:FIELD#PCF,2 AS CO1$,2 AS CO2$:PCPI=0
+```
+The file containing the P-code is opened.
+```
+20020 GOSUB 12300:PRINT PCPI;CHR$(13);:WHILE NOT FNEOPF(CO1,CO2):GOSUB 20100:PCPI=PCPI+1:GOSUB 12300:PRINT PCPI;CHR$(13);:WEND
+```
+The first instruction is fetched from the P-code file. The subroutine at line 12300 puts the two words fetched in CO1 and CO2, and decodes the first word into two bytes Q1 and Q2, with Q1 containing the most significant byte.
+
+As long as these two words do not signify the end of the P-code file, each P-code instruction is processed by checking if it is a ```JMP``` or a ```JPC```, and, if it is, check wether the jump target is a ```LOD``` instruction. If so, the adres of this ```LOD``` instruction is saved.
+```
+20030 CLOSE#PCF
+```
+The P-code file no longer needs to be accessed, so it is closed.
+```
+20040 IF TLDI>0 THEN GOSUB 20300:IF DBG>0 THEN PRINT" "TLDI"targeted LODs found":IF DBG>1 THEN FOR I=0 TO TLDI-1:PRINT TLOD[I]:NEXT
+```
+Next, the addresses of the ```LOD``` instructions found are sorted.
+```
+20050 IF TLDI>0 THEN GOSUB 20400:IF DBG>0 THEN PRINT" "TLDI"unique targeted LODs":IF DBG>1 THEN FOR I=0 TO TLDI-1:PRINT TLOD[I]:NEXT
+```
+The last step is to remove duplicates from the list of addresses of targeted ```LOD``` instructions.
+```
+20060 IF DBG>0 THEN PRINT" Done scanning"
+20070 RETURN
+```
+That concludes scanning for targeted ```LOD``` instructions.
+#### Looking for a Targeted ```LOD``` Instruction
+```
+20100 IF Q1<>6 AND Q1<>7 THEN RETURN
+```
+Check if this instruction is ```JMP``` or a ```JPC```. If not, we're done.
+```
+20110 GET#PCF,CO2+1:TQ1=CVI(CO1$)\256:IF TQ1<>2 THEN RETURN
+```
+Next, check if the target of the ```JMP``` or ```JPC``` is a ```LOD``` instruction. If not, we're done.
+```
+20120 TLOD[TLDI]=CO2:TLDI=TLDI+1:PRINT:RETURN
+```
+Store the address of the ```LOD``` instruction (```CO2```) in the list ```TLOD```.
+
+#### Sorting the List of Targeted ```LOD```s
+```
+20300 IF DBG>0 THEN PRINT" Sorting"
+20310 FOR I=TLDI-1 TO 1 STEP -1:FOR J=0 TO I-1:IF TLOD[J]>TLOD[J+1]THEN SWAP TLOD[J],TLOD[J+1]
+20320 NEXT J,I
+20330 RETURN
+```
+Sorting is done through a simple bubble sort. The number of targeted ```LOD``` is usually small, so a fancier sorting method is overkill.
+
+#### Removing Duplicate Addresses From the Sorted List of Targeted ```LOD```s
+```
+20400 IF DBG>0 THEN PRINT" Removing duplicates"
+20410 J=0:FOR I=1 TO TLDI-1:IF TLOD[I]<>TLOD[J]THEN J=J+1:TLOD[J]=TLOD[I]
+20420 NEXT:IF TLDI>0 THEN TLDI=J+1
+20430 RETURN
+```
+This algorithm simply squeezes duplicates from the list. The invariant of this loop is: all adresses from 0 to ```J``` are unique. Only if the address at ```I``` is different from the address at ```J```, ```J``` is advanced, and the item at ```I``` is copied to position ```J```.
+
+The last step is to correct the number of addresses of targeted ```LOD``` instructions, ```TLDI```, in the squeezed list. As the index of unique addresses in the list ranges from 0 to ```J```, this number is ```J```+1.
+
+### Tranlating the P-code Instructions
+```
+23000 IF DBG>0 THEN PRINT"Translating"
+23010 OPEN"R",#PXN,PXN$,2:FIELD#PXN,2 AS ACPI$
+23020 OPEN"R",#TAF,TAF$,1:FIELD#TAF,1 AS OBT$:ACPI=PROGB
+23030 OPEN"R",#PCF,PCF$,4:FIELD#PCF,2 AS CO1$,2 AS CO2$:PCPI=0
+23040 DIM REFS[1000,1]:NRFS=0:TRF=0:TLDX=0
+23050 GOSUB 12300:WHILE NOT FNEOPF(CO1,CO2):GOSUB 12200:GOSUB 12400:GOSUB 24000:GOSUB 12500:PCPI=PCPI+1:GOSUB 12300:WEND:IF DBG=0 THEN PRINT
+23060 SBM=ACPI:MXPI=PCPI 
+23100 IF DBG>0 THEN PRINT"Fixing"NRFS"references"
+23110 FOR RFIX=0 TO NRFS-1:PCAD=REFS[RFIX,0]:ACPI=REFS[RFIX,1]:GET#PXN,PCAD+1:OWD=CVI(ACPI$)
+23120 IF DBG>0 THEN IF DBG>1 THEN PRINT"Forward reference: P-code address is "PCAD" = "FNHEXN$(OWD,4)" @ "FNHEXN$(ACPI,4) ELSE PRINT RFIX+1;CHR$(13);
+23130 GOSUB 12700:NEXT
+23140 CLOSE#PXN,#TAF,#PCF
+23150 IF DBG>0 THEN PRINT" Done translating and fixing references"
+23160 RETURN
 ```
 ```
 24240 GET#PLN,PCPI:PCO1=CVI(CO1$):PCO2=CVI(CO2$):PQ1=PCO1\256:IF PQ1<>0 THEN 24220 ELSE IF CO2=1 THEN 24250 ELSE IF CO2=2 OR CO2=3 THEN 24270 ELSE STOP'CO2 (=OPR)  SHOULD BE 1, 2 OR 3
