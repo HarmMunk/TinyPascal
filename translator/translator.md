@@ -405,6 +405,14 @@ Then, this address is stored in the 8080-assembly code file ```TAF```. Note that
 23160 RETURN
 ```
 And that concludes processing the sequence of P-code instructions, so all files can be closed again.
+
+### Translating one P-code Instruction
+
+```
+24000 ON (Q1 MOD 16)+1 GOTO 24100,24200,24400,24500,24600,24730,24810,24920,25010,25100,25100,25100,25100,25100,25100,25100
+24010 REM: TRANSLATE:       LIT   OPR   LOD   STO   CAL   INT   JMP   JPC   CSP   ERR...
+```
+The opcode of the P-code instruction is stored in the first four bits of the first byte of the first word of a P-code instruction. Note that if the fifth bit is on, then this instruction uses indexed addressing.
 ```
 24240 GET#PLN,PCPI:PCO1=CVI(CO1$):PCO2=CVI(CO2$):PQ1=PCO1\256:IF PQ1<>0 THEN 24220 ELSE IF CO2=1 THEN 24250 ELSE IF CO2=2 OR CO2=3 THEN 24270 ELSE STOP'CO2 (=OPR)  SHOULD BE 1, 2 OR 3
 ```
