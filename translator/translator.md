@@ -364,17 +364,47 @@ The last step is to correct the number of addresses of targeted ```LOD``` instru
 23010 OPEN"R",#PXN,PXN$,2:FIELD#PXN,2 AS ACPI$
 23020 OPEN"R",#TAF,TAF$,1:FIELD#TAF,1 AS OBT$:ACPI=PROGB
 23030 OPEN"R",#PCF,PCF$,4:FIELD#PCF,2 AS CO1$,2 AS CO2$:PCPI=0
+```
+The tranlsation process is started by opening the file PXN that holds the cross link between P-code addresses and 8080-assembly language instructions. This file simply contains 8080 assembly language instruction addresses. Therefore, it is accessed a 16 bit word at a time.
+
+The temporary 8080-assembly language file, TAF is then opened. This file accessed at a bye level. Note that the pointer into the file is initialised to```PROGB```, the address where the translated program will b stored.
+And last but not least the file containing the P-code instructions is opened. This file is accessed two 16 bit words at a time. The P-code program index, ```PCPI```, is initialised to the first P-code instruction at P-code address 0.
+
+All files are opened in random access mode.
+```
 23040 DIM REFS[1000,1]:NRFS=0:TRF=0:TLDX=0
+```
+If a P-code instruction references another P-code instruction with a larger address, called a forward reference, the location of that P-code instruction must be stored in order to enable the translator to fix that address later, once the 8080-assembly language instruction address is known. Variable ```NRFS``` keeps track of the total number of forward references.
+```
 23050 GOSUB 12300:WHILE NOT FNEOPF(CO1,CO2):GOSUB 12200:GOSUB 12400:GOSUB 24000:GOSUB 12500:PCPI=PCPI+1:GOSUB 12300:WEND:IF DBG=0 THEN PRINT
-23060 SBM=ACPI:MXPI=PCPI 
+```
+Translation begins by getting the first P-code instruction from file PCF, using the subroutine at line 12300.
+Then, as long as the P-code instruction is not the end of file marker for the P-code file, each instruction is processed as follows:
+
+- the 8080-assembly language addressed is stored in file PXN;
+- if the debug level is at least 1, the P-code instruction together with its location in the P-code file and the location in the 8080-assembly language file where the translated code will be stored are printed;
+- the P-code instruction is translated into 8080-assembly language;
+- if the debug level is at least 1, some debugging information and optimisation iformation is printed;
+- the next P-code instruction is fetched.
+```
+23060 SBM=ACPI:MXPI=PCPI
+```
+The address of the first byte after the last 8080-assembly language instruction is stored in ```SBM```, and the number of P-code instructions is stored in ```MXPI```.
+```
 23100 IF DBG>0 THEN PRINT"Fixing"NRFS"references"
 23110 FOR RFIX=0 TO NRFS-1:PCAD=REFS[RFIX,0]:ACPI=REFS[RFIX,1]:GET#PXN,PCAD+1:OWD=CVI(ACPI$)
 23120 IF DBG>0 THEN IF DBG>1 THEN PRINT"Forward reference: P-code address is "PCAD" = "FNHEXN$(OWD,4)" @ "FNHEXN$(ACPI,4) ELSE PRINT RFIX+1;CHR$(13);
 23130 GOSUB 12700:NEXT
+```
+Next, the forward references are fixed, using array ```REFS[,]```. The first column of this array contains the P-code address of the referenced instruction. The equivalent 8080-assembly language instruction address can simply be looked up in the file ```PXN```. Because a P-code instruction is in general translated into multiple 8080-assembly code instructions, we also must know where the 8080-assembly code address of the P-code instruction must be stored. That 8080-assembly code address is stored in the second column of array ```REFS[,]```.
+
+Then, this address is stored in the 8080-assembly code file ```TAF```. Note that the debug information must be printed before the address is stored because storing the address updates variable ```ACPI```.
+```
 23140 CLOSE#PXN,#TAF,#PCF
 23150 IF DBG>0 THEN PRINT" Done translating and fixing references"
 23160 RETURN
 ```
+And that concludes processing the sequence of P-code instructions, so all files can be closed again.
 ```
 24240 GET#PLN,PCPI:PCO1=CVI(CO1$):PCO2=CVI(CO2$):PQ1=PCO1\256:IF PQ1<>0 THEN 24220 ELSE IF CO2=1 THEN 24250 ELSE IF CO2=2 OR CO2=3 THEN 24270 ELSE STOP'CO2 (=OPR)  SHOULD BE 1, 2 OR 3
 ```
