@@ -412,29 +412,69 @@ And that concludes processing the sequence of P-code instructions, so all files 
 24000 ON (Q1 MOD 16)+1 GOTO 24100,24200,24400,24500,24600,24730,24810,24920,25010,25100,25100,25100,25100,25100,25100,25100
 24010 REM: TRANSLATE:       LIT   OPR   LOD   STO   CAL   INT   JMP   JPC   CSP   ERR...
 ```
-The opcode of the P-code instruction is stored in the first four bits of the first byte of the first word of a P-code instruction. Note that if the fifth bit is on, then this instruction uses indexed addressing.
-```
-24240 GET#PLN,PCPI:PCO1=CVI(CO1$):PCO2=CVI(CO2$):PQ1=PCO1\256:IF PQ1<>0 THEN 24220 ELSE IF CO2=1 THEN 24250 ELSE IF CO2=2 OR CO2=3 THEN 24270 ELSE STOP'CO2 (=OPR)  SHOULD BE 1, 2 OR 3
-```
-PCO1, PCO2 and PQ1 are the CO1, CO2 and Q1 of the P-code instruction immediately preceding the current one. If that previous instruction is NOT a ```LIT``` instruction, then there is nothing to optimise.
-If the current instruction is a negate ```OPR 0,1``` then continue at line 24250. If it is an add ```OPR 0,2``` or a subtract ```OPR 0,3``` then continue at line 24270. If it is none of these three operations, something is wrong.
+The opcode of the P-code instruction is stored in the first five bits of the first byte of the first word of a P-code instruction. Note that if the fifth bit is on, then this instruction uses indexed addressing.
 
+#### Translating the *LIT* Instruction
+
+```
+24100 REM:LIT 0,N: LXI B,N:CALL LIT
+24110 IF OPL>1 AND CO2=0 THEN 24140
+24120 OBT=&H1:GOSUB 12600:OWD=CO2:GOSUB 12700
+24130 OBT=&HCD:GOSUB 12600:OWD=PRTB[P2R[Q1]]:GOTO 12700
+```
+In general, a *LIT 0,N*-instructon is translated into:
+```
+     LXI  B,N
+     CALL LIT
+```
+If the optimisation level is 0, then this sequence of instructions is generated.
+```
+24140 OBT=&HAF:GOSUB 12600:FOR I=1 TO 2:OBT=&H13:GOSUB 12600:OBT=&H12:GOSUB 12600:NEXT:OBT=&HCD:GOSUB 12600:OWD=STCK:GOSUB 12700
+24150 NOPT[2]=NOPT[2]+1:OPT$=", O2":RETURN
+```
+If the optimisation level is 2 or more, **and** N=0, then the next sequence of instructions is generated:
+```
+     XOR  A    ; Clear A
+     STAX D    ; Store first byte on top of stack
+     INX  D    ; Increment stack pointer
+     STAX D    ; Store second byte on top of stack
+     INX  D    ; Increment stack pointer
+     CALL STCK ; Check for stack overflow
+```
+Note that in the original translator this last stack-checking step was omitted. This could lead to unexpected stack overflow in some cases. It happened, e.g., in the Ackermann-function example.
+#### Translating the *OPR 0,N* Instruction
+```
+24200 REM OPR 0,N: CALL OPR00$NN, EXCEPT FOR OPR 0,0: JMP OPR00$00
+24210 IF OPL>1 AND (CO2=1 OR CO2=2 OR CO2=3)THEN 24240
+```
+In principle, the translation of an ```OPRN 0,n``` P-code instruction is simply a matter of calling the assembly language subroutine that implements the instruction. In case optimisations are switched on, and the ```OPR``` is a negate, an add, or a subtract instruction, this process is less straight forward.
+```
+24220 IF CO2=0 THEN OBT=&HC3 ELSE OBT=&HCD
+24230 GOSUB 12600:OWD=PRTB[P2R[Q1]+CO2]:GOTO 12700
+```
+There is one exception: of the operation to be called is OPR ```0,0```, a return from a function or a procedure, then the address of the next instruction to be executed is not the next instruction in the sequence, but is on the stack. ```OPR 0,0``` removes this address from the stack, and continues execution at this address: therefore, the assembly language subroutine implementing the ```OPR 0,0``` should not return. And because of that, the routines is not called, but jumped to. That distinction is made by either emitting a ```CALL adr``` or a ```JMP adr```.
+The addresses of all **OP**e**R**ations are stored in array ```PRTB```, starting at index ```P2R[Q1]```, where Q1 is the P-code opcode of the ```OPR``` instruction.
+
+Next, we get to the optimised ```OPR 0,N``` instructions:
+```
+24240 GET#PCF,PCPI:PCO1=CVI(CO1$):PCO2=CVI(CO2$):PQ1=PCO1\256:IF PQ1<>0 THEN 24220 ELSE IF CO2=1 THEN 24250 ELSE IF CO2=2 OR CO2=3 THEN 24270 ELSE STOP'CO2 (=OPR)  SHOULD BE 1, 2 OR 3
+```
+PCO1, PCO2 and PQ1 are the CO1, CO2 and Q1 of the P-code instruction immediately preceding the current one. If that previous instruction is *not* a ```LIT``` instruction, then there is nothing to optimise.
+If the current instruction is a negate ```OPR 0,1``` then continue at line 24250. If it is an add ```OPR 0,2``` or a subtract ```OPR 0,3``` then continue at line 24270. If it is none of these three operations, something is wrong.
 ```
 24250 IF PCO2=0 THEN NOPT[2]=NOPT[2]+1:OPT$=", O2Q":RETURN
 ```
-If the previous instruction is a ```LIT 0,0``` and the current instruction is a negate, then do not generate code (-0=0).
+If the previous instruction is a ```LIT 0,0``` and the current instruction is a negate, then do not generate code (-0=0). The array ```NOPT[]``` keeps track of all optimisations, and the ```OPT$``` is used to print some information about the optimisation.
 
 ```
 24260 ACPI=ACPI-5:OWD=-CO2:GOSUB 12700:ACPI=ACPI+3:NOPT[2]=NOPT[2]+1:OPT$=", O2":RETURN
 ```
-Replace the constant n in the ```LIT 0,n``` instruction by -n.
+Replace the constant n in the ```LIT 0,n``` instruction by -n. That means going back 5 bytes in the assembly language program, followed by emitting the negative constant ```CO2```, being two bytes, and then forwarding 3 bytes again to get back to address where the next assemby language instruction is to be placed.
 
 ```
 24270 IF PCO2>3 THEN 24220
 ```
 If the constant in the ```LIT 0,n``` instruction is larger than 3 then there is nothing to optimise.
-
-
 ```
 24280 IF CO2=2 THEN OP=19 ELSE OP=20
 ```
@@ -448,3 +488,10 @@ If the previous instruction is a ```LIT 0,0``` then quash it completely, because
 24300 ACPI=ACPI-6:FOR I=1 TO PCO2:OBT=&HCD:GOSUB 12600:OWD=PRTB[P2R[Q1]+OP]:GOSUB 12700:NEXT:RETURN
 ```
 Replace the ```LIT 0,n``` followed by and add or subtract instruction by n repeated calls to increment or decrement.
+```
+24400 IF OPL<2 THEN 24500
+24410 GET#PCF,PCPI:PCO1=CVI(CO1$):PQ1=PCO1\256:PQ2=PCO1 MOD 256:PCO2=CVI(CO2$):IF PQ1=2 AND OPL>1 AND PQ2=Q2 AND PCO2=CO2 THEN NOPT[2]=NOPT[2]+1:OPT$=", O2":OBT=&HCD:GOSUB 12600:OWD=PRTB[P2R[1]+21]:GOSUB 12700:OBT=&HCD:GOSUB 12600:OWD=STCK:GOTO 12700
+24420 IF PQ1<>3 OR OPL<3 OR PQ2<>Q2 OR PCO2<>CO2 THEN 24500 ELSE WHILE TLDX<TLDI AND TLOD[TLDX]<PCPI:TLDX=TLDX+1:WEND:IF TLOD[TLDX]=PCPI THEN OPT$=", X":GOTO 24500
+24430 NOPT[3]=NOPT[3]+1:OPT$=", O3":OBT=&H13:GOSUB 12600:GOTO 12600
+2
+```
